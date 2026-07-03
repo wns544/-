@@ -21,14 +21,20 @@ import java.util.Locale;
 final class DiagnosticLog {
     private static final String FILE_NAME = "diagnostic-log.txt";
     private static final int MAX_BYTES = 64 * 1024;
+    private static final long THROTTLE_MS = 1000L;
     private static final Object LOCK = new Object();
+    private static String lastThrottledLine = "";
+    private static long lastThrottledAt;
 
     private DiagnosticLog() {
     }
 
     static void record(Context context, String tag, String message) {
         Log.i(tag, message);
-        append(context, tag + ": " + message);
+        String line = tag + ": " + message;
+        if (!shouldThrottle(line)) {
+            append(context, line);
+        }
     }
 
     static void record(Context context, String tag, String message, Throwable throwable) {
@@ -77,10 +83,15 @@ final class DiagnosticLog {
         synchronized (LOCK) {
             String stamped = timestamp() + "  " + line + "\n";
             File file = logFile(context);
-            String existing = "";
-            if (file.exists()) {
-                existing = read(context);
+            byte[] stampedBytes = stamped.getBytes(StandardCharsets.UTF_8);
+            if (!file.exists() || file.length() + stampedBytes.length <= MAX_BYTES) {
+                try (FileOutputStream output = new FileOutputStream(file, true)) {
+                    output.write(stampedBytes);
+                } catch (Exception ignored) {
+                }
+                return;
             }
+            String existing = read(context);
             String combined = existing + stamped;
             byte[] bytes = trimToLimit(combined).getBytes(StandardCharsets.UTF_8);
             try (FileOutputStream output = new FileOutputStream(file, false)) {
@@ -88,6 +99,28 @@ final class DiagnosticLog {
             } catch (Exception ignored) {
             }
         }
+    }
+
+    private static boolean shouldThrottle(String line) {
+        if (!isThrottleCandidate(line)) {
+            return false;
+        }
+        long now = android.os.SystemClock.elapsedRealtime();
+        synchronized (LOCK) {
+            if (line.equals(lastThrottledLine) && now - lastThrottledAt < THROTTLE_MS) {
+                return true;
+            }
+            lastThrottledLine = line;
+            lastThrottledAt = now;
+            return false;
+        }
+    }
+
+    private static boolean isThrottleCandidate(String line) {
+        return line.contains("display resting state=")
+                || line.contains("pre-arm skipped")
+                || line.contains("show lock skipped")
+                || line.contains("lock visibility confirmed");
     }
 
     private static String trimToLimit(String value) {

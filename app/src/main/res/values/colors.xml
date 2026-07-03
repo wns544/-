@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <color name="midnight">#10151F</color>
-    <color name="panel">#F6F1E6</color>
-    <color name="ink">#172033</color>
-    <color name="muted">#657083</color>
-    <color name="accent">#2D8C7F</color>
-    <color name="danger">#C24132</color>
+    <color name="panel">#FFFFFF</color>
+    <color name="ink">#191F28</color>
+    <color name="muted">#8B95A1</color>
+    <color name="accent">#5F8F73</color>
+    <color name="danger">#F04452</color>
 </resources>

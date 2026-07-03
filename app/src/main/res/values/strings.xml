@@ -10,7 +10,9 @@
     <string name="lock_screen_enabled_desc">화면을 켜면 할 일 커튼이 나타납니다.</string>
     <string name="overlay_opacity">배경 어둡기</string>
     <string name="unlock_both_directions">양방향 밀어서 잠금해제</string>
+    <string name="swipe_both_directions_delete">할 일 좌우 스와이프 모두 삭제</string>
     <string name="section_todos">할 일</string>
+    <string name="todo_gesture_hint">텍스트 더블탭으로 수정 · 길게 눌러 순서 변경</string>
     <string name="todo_input_hint">잠금화면에 띄울 할일</string>
     <string name="add">추가</string>
     <string name="settings">설정</string>
@@ -60,4 +62,17 @@
     <string name="language_korean">한국어</string>
     <string name="language_english">English</string>
     <string name="language_traditional_chinese">繁體中文</string>
+    <string name="google_sign_in">Google 계정으로 동기화</string>
+    <string name="google_account">Google 계정</string>
+    <string name="google_sign_out">로그아웃</string>
+    <string name="google_sign_out_title">Google 계정에서 로그아웃할까요?</string>
+    <string name="google_signed_in">Google 계정에 로그인했습니다.</string>
+    <string name="google_signed_out">로그아웃했습니다. 메모는 이 기기에 유지됩니다.</string>
+    <string name="google_sign_in_failed">Google 로그인에 실패했습니다.</string>
+    <string name="cloud_syncing">동기화 중</string>
+    <string name="cloud_synced">동기화됨</string>
+    <string name="cloud_offline">오프라인</string>
+    <string name="cloud_server_summary">서버 %1$d개 · %2$s</string>
+    <string name="firebase_setup_required_title">Firebase 설정이 필요합니다</string>
+    <string name="firebase_setup_required_body">Firebase Console에서 Android 앱(com.wns544.nudgescreen)을 등록하고 app/google-services.json을 추가한 뒤 Google 로그인을 활성화해 주세요.</string>
 </resources>

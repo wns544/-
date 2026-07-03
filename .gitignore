@@ -9,3 +9,5 @@ keystore.properties
 *.keystore
 *.iml
 .idea/
+tmp-*
+restore-memos.txt

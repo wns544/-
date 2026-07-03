@@ -12,6 +12,7 @@ final class TodoStore {
     private static final String KEY_ITEMS = "items";
     private static final String KEY_MIGRATED = "migrated_to_device_protected";
     private static final String KEY_TUTORIAL_SEEDED = "unlock_tutorial_seeded";
+    private static final String KEY_UPDATED_AT = "updated_at";
     private static List<TodoItem> cachedItems;
 
     private TodoStore() {
@@ -121,15 +122,38 @@ final class TodoStore {
         save(context, items);
     }
 
+    static long updatedAt(Context context) {
+        Context storeContext = storageContext(context);
+        migrateIfNeeded(context, storeContext);
+        return storeContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                .getLong(KEY_UPDATED_AT, 0L);
+    }
+
+    static synchronized void replaceFromCloud(Context context, List<TodoItem> items, long updatedAt) {
+        Context storeContext = storageContext(context);
+        migrateIfNeeded(context, storeContext);
+        List<TodoItem> copy = new ArrayList<>(items);
+        storeContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                .edit()
+                .putString(KEY_ITEMS, TodoCodec.encode(copy))
+                .putBoolean(KEY_TUTORIAL_SEEDED, true)
+                .putLong(KEY_UPDATED_AT, Math.max(0L, updatedAt))
+                .apply();
+        cachedItems = copy;
+    }
+
     private static synchronized void save(Context context, List<TodoItem> items) {
         Context storeContext = storageContext(context);
         migrateIfNeeded(context, storeContext);
         SharedPreferences prefs = storeContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+        long updatedAt = System.currentTimeMillis();
         prefs.edit()
                 .putString(KEY_ITEMS, TodoCodec.encode(items))
                 .putBoolean(KEY_TUTORIAL_SEEDED, true)
+                .putLong(KEY_UPDATED_AT, updatedAt)
                 .apply();
         cachedItems = new ArrayList<>(items);
+        FirebaseTodoSync.onLocalTodosChanged(context, cachedItems, updatedAt);
     }
 
     private static void seedUnlockTutorialIfNeeded(Context context, SharedPreferences prefs) {

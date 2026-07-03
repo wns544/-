@@ -10,7 +10,9 @@
     <string name="lock_screen_enabled_desc">Your todo curtain appears when you turn on the screen.</string>
     <string name="overlay_opacity">Background dim</string>
     <string name="unlock_both_directions">Unlock by swiping in either direction</string>
+    <string name="swipe_both_directions_delete">Delete todos by swiping either way</string>
     <string name="section_todos">Todos</string>
+    <string name="todo_gesture_hint">Double-tap text to edit · Hold and drag to reorder</string>
     <string name="todo_input_hint">Todo to show on the lock screen</string>
     <string name="add">Add</string>
     <string name="settings">Settings</string>
@@ -60,4 +62,17 @@
     <string name="device_admin_action">Double-tap screen off permission</string>
     <string name="device_admin_description">Used to turn off the screen with a double tap on the lock curtain.</string>
     <string name="device_admin_explanation">Allows Nudge Screen to turn off the screen when you double-tap an empty area of the lock curtain.</string>
+    <string name="google_sign_in">Sync with Google</string>
+    <string name="google_account">Google account</string>
+    <string name="google_sign_out">Sign out</string>
+    <string name="google_sign_out_title">Sign out of your Google account?</string>
+    <string name="google_signed_in">Signed in with Google.</string>
+    <string name="google_signed_out">Signed out. Notes remain on this device.</string>
+    <string name="google_sign_in_failed">Google sign-in failed.</string>
+    <string name="cloud_syncing">Syncing</string>
+    <string name="cloud_synced">Synced</string>
+    <string name="cloud_offline">Offline</string>
+    <string name="cloud_server_summary">Server %1$d · %2$s</string>
+    <string name="firebase_setup_required_title">Firebase setup required</string>
+    <string name="firebase_setup_required_body">Register the Android app (com.wns544.nudgescreen) in Firebase Console, add app/google-services.json, and enable Google sign-in.</string>
 </resources>

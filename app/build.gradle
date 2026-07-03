@@ -1,5 +1,9 @@
 apply plugin: "com.android.application"
 
+if (file("google-services.json").exists()) {
+    apply plugin: "com.google.gms.google-services"
+}
+
 def keystorePropertiesFile = rootProject.file("keystore.properties")
 def keystoreProperties = new Properties()
 if (keystorePropertiesFile.exists()) {
@@ -14,8 +18,8 @@ android {
         applicationId "com.wns544.nudgescreen"
         minSdk 26
         targetSdk 36
-        versionCode 36
-        versionName "1.0.35"
+        versionCode 41
+        versionName "1.0.41"
     }
 
     signingConfigs {
@@ -38,4 +42,14 @@ android {
 
 tasks.withType(JavaCompile).configureEach {
     options.encoding = "UTF-8"
+}
+
+dependencies {
+    implementation platform("com.google.firebase:firebase-bom:34.15.0")
+    implementation "com.google.firebase:firebase-auth"
+    implementation "com.google.firebase:firebase-firestore"
+    implementation "androidx.credentials:credentials:1.6.0"
+    implementation "androidx.credentials:credentials-play-services-auth:1.6.0"
+    implementation "com.google.android.libraries.identity.googleid:googleid:1.2.0"
+    implementation "com.google.android.gms:play-services-auth:21.4.0"
 }

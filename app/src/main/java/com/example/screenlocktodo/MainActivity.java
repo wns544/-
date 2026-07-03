@@ -2,17 +2,24 @@ package com.example.screenlocktodo;
 
 import android.Manifest;
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.app.admin.DevicePolicyManager;
 import android.app.Dialog;
 import android.app.LocaleManager;
 import android.app.NotificationManager;
+import android.content.ClipData;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
+import android.content.pm.ActivityInfo;
 import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
+import android.content.res.ColorStateList;
+import android.graphics.Canvas;
 import android.graphics.Paint;
+import android.graphics.Path;
 import android.graphics.Rect;
+import android.graphics.RectF;
 import android.graphics.Typeface;
 import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.GradientDrawable;
@@ -21,10 +28,14 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.LocaleList;
 import android.os.PowerManager;
+import android.os.CancellationSignal;
+import android.os.SystemClock;
 import android.provider.Settings;
+import android.view.DragEvent;
 import android.view.Gravity;
 import android.view.MotionEvent;
 import android.view.View;
+import android.view.ViewConfiguration;
 import android.view.Window;
 import android.view.inputmethod.InputMethodManager;
 import android.widget.Button;
@@ -38,24 +49,51 @@ import android.widget.ScrollView;
 import android.widget.SeekBar;
 import android.widget.Switch;
 import android.widget.TextView;
+import android.widget.Toast;
 import android.window.OnBackInvokedDispatcher;
 
+import androidx.credentials.Credential;
+import androidx.credentials.CredentialManager;
+import androidx.credentials.CredentialManagerCallback;
+import androidx.credentials.CustomCredential;
+import androidx.credentials.GetCredentialRequest;
+import androidx.credentials.GetCredentialResponse;
+import androidx.credentials.exceptions.GetCredentialException;
+
+import com.google.android.libraries.identity.googleid.GetGoogleIdOption;
+import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential;
+import com.google.android.gms.auth.api.signin.GoogleSignIn;
+import com.google.android.gms.auth.api.signin.GoogleSignInAccount;
+import com.google.android.gms.auth.api.signin.GoogleSignInOptions;
+import com.google.android.gms.common.api.ApiException;
+import com.google.android.gms.tasks.Task;
+import com.google.firebase.auth.AuthCredential;
+import com.google.firebase.auth.FirebaseAuth;
+import com.google.firebase.auth.FirebaseUser;
+import com.google.firebase.auth.GoogleAuthProvider;
+
 import java.util.ArrayDeque;
+import java.util.ArrayList;
+import java.util.Date;
 import java.util.List;
+import java.util.concurrent.Executor;
 
 public class MainActivity extends Activity {
     private static final int REQUEST_NOTIFICATIONS = 40;
     private static final int REQUEST_LOCK_BACKGROUND_IMAGE = 41;
+    private static final int REQUEST_GOOGLE_SIGN_IN = 42;
+    private static final int REQUEST_RECORD_AUDIO = 43;
+    private static final long TODO_DOUBLE_TAP_MS = ViewConfiguration.getDoubleTapTimeout();
 
-    private static final int COLOR_BG = 0xFFF5F5F7;
-    private static final int COLOR_INK = 0xFF1D1D1F;
-    private static final int COLOR_MUTED = 0xFF6E6E73;
+    private static final int COLOR_BG = 0xFFF5F6F8;
+    private static final int COLOR_INK = 0xFF191F28;
+    private static final int COLOR_MUTED = 0xFF8B95A1;
     private static final int COLOR_PANEL = 0xFFFFFFFF;
-    private static final int COLOR_LINE = 0xFFE5E5EA;
-    private static final int COLOR_ACCENT = 0xFF6E8FBF;
+    private static final int COLOR_LINE = 0xFFF2F4F6;
+    private static final int COLOR_ACCENT = 0xFF5F8F73;
     private static final int COLOR_GREEN = 0xFF7FA88A;
     private static final int COLOR_DANGER = 0xFFD9796F;
-    private static final int COLOR_FIELD = 0xFFF2F2F7;
+    private static final int COLOR_FIELD = 0xFFF5F6F8;
 
     private ScrollView mainScroll;
     private LinearLayout todoList;
@@ -65,11 +103,69 @@ public class MainActivity extends Activity {
     private TextView opacityValue;
     private View drawerScrim;
     private LinearLayout drawerPanel;
+    private TextView cloudAccountText;
+    private View drawerBackButton;
+    private TextView drawerTitle;
+    private TextView drawerSubtitle;
+    private LinearLayout drawerMenuContent;
+    private ScrollView drawerMenuScroll;
+    private String drawerPage = "home";
     private boolean drawerOpen;
     private float drawerDownX;
     private float drawerDownY;
     private boolean drawerSwiping;
     private boolean drawerOpening;
+    private long lastTodoTapId = -1L;
+    private long lastTodoTapAt;
+    private View draggingMainTodoRow;
+    private int mainTodoDropIndex = -1;
+    private boolean mainTodoDropCommitted;
+    private String cloudSyncStatus = "signed_out";
+    private int cloudServerItemCount = -1;
+    private long cloudServerUpdatedAt;
+    private final List<TodoItem> cloudServerItems = new ArrayList<>();
+    private boolean cloudServerItemsLoaded;
+    private final FirebaseTodoSync.Listener cloudSyncListener = new FirebaseTodoSync.Listener() {
+        @Override
+        public void onTodosUpdated() {
+            runOnUiThread(() -> refreshTodos());
+        }
+
+        @Override
+        public void onStatusChanged(String status) {
+            runOnUiThread(() -> {
+                cloudSyncStatus = status;
+                if ("signed_out".equals(status)) {
+                    cloudServerItems.clear();
+                    cloudServerItemsLoaded = false;
+                    cloudServerItemCount = -1;
+                    cloudServerUpdatedAt = 0L;
+                }
+                refreshDrawerIfOpen();
+            });
+        }
+
+        @Override
+        public void onServerStateChanged(int itemCount, long updatedAt) {
+            runOnUiThread(() -> {
+                cloudServerItemCount = itemCount;
+                cloudServerUpdatedAt = updatedAt;
+                refreshDrawerIfOpen();
+            });
+        }
+
+        @Override
+        public void onServerItemsChanged(List<TodoItem> items, long updatedAt) {
+            runOnUiThread(() -> {
+                cloudServerItems.clear();
+                cloudServerItems.addAll(items);
+                cloudServerItemsLoaded = true;
+                cloudServerItemCount = items.size();
+                cloudServerUpdatedAt = updatedAt;
+                refreshDrawerIfOpen();
+            });
+        }
+    };
 
     @Override
     protected void attachBaseContext(Context newBase) {
@@ -78,15 +174,19 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
+        setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_PORTRAIT);
         super.onCreate(savedInstanceState);
         configureMainWindow();
-        requestNotificationPermission();
+        if (!requestNotificationPermission()) {
+            requestRecordAudioPermission();
+        }
         AppSettings.applyLockScreenRecovery(this);
         DiagnosticLog.recordAppState(this, "main onCreate");
         syncLockMonitorService();
         registerBackHandler();
         setContentView(buildContent());
         refreshTodos();
+        FirebaseTodoSync.start(this, cloudSyncListener);
         maybeShowBatteryGuideOnboarding();
     }
 
@@ -96,6 +196,7 @@ public class MainActivity extends Activity {
         DiagnosticLog.recordAppState(this, "main onResume");
         syncLockMonitorService();
         refreshTodos();
+        FirebaseTodoSync.start(this, cloudSyncListener);
     }
 
     @Override
@@ -106,6 +207,7 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onDestroy() {
+        FirebaseTodoSync.stop();
         syncLockMonitorService();
         super.onDestroy();
     }
@@ -120,6 +222,8 @@ public class MainActivity extends Activity {
         super.onActivityResult(requestCode, resultCode, data);
         if (requestCode == REQUEST_LOCK_BACKGROUND_IMAGE && resultCode == RESULT_OK && data != null) {
             saveLockBackgroundImage(data);
+        } else if (requestCode == REQUEST_GOOGLE_SIGN_IN) {
+            handleLegacyGoogleSignInResult(data);
         }
     }
 
@@ -134,6 +238,10 @@ public class MainActivity extends Activity {
 
     private void handleBack() {
         if (drawerOpen) {
+            if (!"home".equals(drawerPage)) {
+                showDrawerPage("home");
+                return;
+            }
             closeDrawer();
             return;
         }
@@ -178,7 +286,7 @@ public class MainActivity extends Activity {
 
     private View buildContent() {
         drawerOpen = false;
-        FrameLayout shell = new DrawerRootLayout(this);
+        FrameLayout shell = new FrameLayout(this);
 
         mainScroll = new ScrollView(this);
         mainScroll.setFillViewport(true);
@@ -187,7 +295,7 @@ public class MainActivity extends Activity {
 
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(dp(20), dp(26), dp(20), dp(28));
+        root.setPadding(dp(20), dp(38), dp(20), dp(28));
         mainScroll.addView(root, new ScrollView.LayoutParams(
                 ScrollView.LayoutParams.MATCH_PARENT,
                 ScrollView.LayoutParams.WRAP_CONTENT
@@ -211,7 +319,7 @@ public class MainActivity extends Activity {
     private View hero() {
         LinearLayout hero = new LinearLayout(this);
         hero.setOrientation(LinearLayout.VERTICAL);
-        hero.setPadding(0, dp(4), 0, dp(8));
+        hero.setPadding(dp(8), dp(8), dp(8), dp(8));
 
         LinearLayout titleRow = new LinearLayout(this);
         titleRow.setOrientation(LinearLayout.HORIZONTAL);
@@ -221,28 +329,19 @@ public class MainActivity extends Activity {
                 LinearLayout.LayoutParams.WRAP_CONTENT
         ));
 
-        TextView title = text(getString(R.string.app_name), 34, COLOR_INK, true);
-        title.setTypeface(Typeface.create("serif", Typeface.BOLD));
+        TextView title = text(getString(R.string.app_name), 28, COLOR_INK, true);
+        title.setTypeface(Typeface.create("sans-serif", Typeface.BOLD));
         titleRow.addView(title, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
 
-        TextView menu = text("\u2630", 22, COLOR_INK, false);
-        menu.setGravity(Gravity.CENTER);
-        menu.setOnClickListener(v -> openDrawer());
-        titleRow.addView(menu, new LinearLayout.LayoutParams(dp(44), dp(44)));
+        CircleIconButtonView preview = new CircleIconButtonView(this, CircleIconButtonView.ICON_PREVIEW);
+        preview.setOnClickListener(v -> startActivity(new Intent(this, LockActivity.class)));
+        LinearLayout.LayoutParams previewParams = new LinearLayout.LayoutParams(dp(36), dp(36));
+        previewParams.rightMargin = dp(6);
+        titleRow.addView(preview, previewParams);
 
-        LinearLayout chips = new LinearLayout(this);
-        chips.setOrientation(LinearLayout.HORIZONTAL);
-        chips.setGravity(Gravity.LEFT);
-        chips.setPadding(0, dp(12), 0, 0);
-        chips.addView(chip(AppSettings.lockScreenEnabled(this) ? getString(R.string.status_running) : getString(R.string.status_paused), 0x267FA88A, COLOR_GREEN));
-        TextView second = chip(AppSettings.curtainUnlockBothDirections(this) ? getString(R.string.curtain_both) : getString(R.string.curtain_right), 0x266E8FBF, COLOR_ACCENT);
-        LinearLayout.LayoutParams secondParams = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.WRAP_CONTENT,
-                dp(34)
-        );
-        secondParams.leftMargin = dp(8);
-        chips.addView(second, secondParams);
-        hero.addView(chips);
+        CircleIconButtonView menu = new CircleIconButtonView(this, CircleIconButtonView.ICON_SETTINGS);
+        menu.setOnClickListener(v -> openDrawer());
+        titleRow.addView(menu, new LinearLayout.LayoutParams(dp(36), dp(36)));
 
         return hero;
     }
@@ -266,6 +365,7 @@ public class MainActivity extends Activity {
         enabledRow.addView(enabledCopy, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
 
         Switch enabledSwitch = new Switch(this);
+        tintSwitch(enabledSwitch);
         enabledSwitch.setChecked(AppSettings.lockScreenEnabled(this));
         enabledSwitch.setOnCheckedChangeListener((buttonView, isChecked) -> {
             DiagnosticLog.record(MainActivity.this, "NudgeMain", "lock screen toggle=" + isChecked);
@@ -294,6 +394,7 @@ public class MainActivity extends Activity {
         card.addView(opacityHeader);
 
         SeekBar opacity = new SeekBar(this);
+        tintSeekBar(opacity);
         opacity.setMax(20);
         opacity.setProgress(Math.round(AppSettings.overlayOpacity(this) / 5f));
         card.addView(opacity, new LinearLayout.LayoutParams(
@@ -320,6 +421,7 @@ public class MainActivity extends Activity {
         card.addView(divider());
 
         CheckBox curtainBothDirections = new CheckBox(this);
+        tintCheckBox(curtainBothDirections);
         curtainBothDirections.setText(getString(R.string.unlock_both_directions));
         curtainBothDirections.setTextSize(15);
         curtainBothDirections.setTextColor(COLOR_INK);
@@ -332,7 +434,21 @@ public class MainActivity extends Activity {
         });
         card.addView(curtainBothDirections);
 
+        CheckBox swipeBothDirectionsDelete = new CheckBox(this);
+        tintCheckBox(swipeBothDirectionsDelete);
+        swipeBothDirectionsDelete.setText(getString(R.string.swipe_both_directions_delete));
+        swipeBothDirectionsDelete.setTextSize(15);
+        swipeBothDirectionsDelete.setTextColor(COLOR_INK);
+        swipeBothDirectionsDelete.setPadding(0, dp(6), 0, 0);
+        swipeBothDirectionsDelete.setChecked(AppSettings.todoSwipeBothDirectionsDelete(this));
+        swipeBothDirectionsDelete.setOnCheckedChangeListener((buttonView, isChecked) -> {
+            AppSettings.setTodoSwipeBothDirectionsDelete(MainActivity.this, isChecked);
+            DiagnosticLog.record(MainActivity.this, "NudgeMain", "todo swipe both directions delete=" + isChecked);
+        });
+        card.addView(swipeBothDirectionsDelete);
+
         CheckBox doubleTapScreenOff = new CheckBox(this);
+        tintCheckBox(doubleTapScreenOff);
         doubleTapScreenOff.setText("\uB354\uBE14\uD0ED\uC73C\uB85C \uD654\uBA74 \uB044\uAE30");
         doubleTapScreenOff.setTextSize(15);
         doubleTapScreenOff.setTextColor(COLOR_INK);
@@ -358,7 +474,7 @@ public class MainActivity extends Activity {
 
     private View todoCard() {
         LinearLayout card = card();
-        card.addView(sectionTitle(getString(R.string.section_todos), null));
+        card.addView(sectionTitle(getString(R.string.section_todos), getString(R.string.todo_gesture_hint)));
 
         LinearLayout inputRow = new LinearLayout(this);
         inputRow.setOrientation(LinearLayout.HORIZONTAL);
@@ -376,17 +492,18 @@ public class MainActivity extends Activity {
         input.setHintTextColor(0x99667085);
         input.setTextSize(15);
         input.setPadding(dp(14), 0, dp(14), 0);
-        input.setBackground(rounded(COLOR_FIELD, 8));
+        input.setBackground(rounded(COLOR_FIELD, 16));
         input.setOnFocusChangeListener((view, hasFocus) -> {
             if (hasFocus) {
                 scrollTodoInputIntoView(inputRow);
             }
         });
-        inputRow.addView(input, new LinearLayout.LayoutParams(0, dp(50), 1));
+        inputRow.addView(input, new LinearLayout.LayoutParams(0, dp(46), 1));
 
-        Button add = filledButton(getString(R.string.add));
+        Button add = filledButton("+");
+        add.setTextSize(24);
         add.setOnClickListener(v -> addTodo());
-        LinearLayout.LayoutParams addParams = new LinearLayout.LayoutParams(dp(82), dp(50));
+        LinearLayout.LayoutParams addParams = new LinearLayout.LayoutParams(dp(46), dp(46));
         addParams.leftMargin = dp(8);
         inputRow.addView(add, addParams);
 
@@ -404,6 +521,7 @@ public class MainActivity extends Activity {
         todoList = new LinearLayout(this);
         todoList.setOrientation(LinearLayout.VERTICAL);
         todoList.setPadding(0, dp(4), 0, 0);
+        todoList.setOnDragListener((view, event) -> handleMainTodoDrag(event));
         card.addView(todoList);
 
         return card;
@@ -414,81 +532,211 @@ public class MainActivity extends Activity {
         layer.setClipChildren(false);
 
         drawerScrim = new View(this);
-        drawerScrim.setBackgroundColor(0x66000000);
+        drawerScrim.setBackgroundColor(0x52000000);
         drawerScrim.setAlpha(0f);
         drawerScrim.setVisibility(View.GONE);
         drawerScrim.setOnClickListener(v -> closeDrawer());
-        drawerScrim.setOnTouchListener((view, event) -> handleDrawerSwipe(event));
         layer.addView(drawerScrim, new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT,
                 FrameLayout.LayoutParams.MATCH_PARENT
         ));
 
-        int panelWidth = Math.round(getResources().getDisplayMetrics().widthPixels * 5f / 6f);
+        int panelHeight = Math.min(
+                Math.round(getResources().getDisplayMetrics().heightPixels * 0.80f),
+                dp(720)
+        );
         drawerPanel = new DrawerPanelLayout(this);
         drawerPanel.setOrientation(LinearLayout.VERTICAL);
-        drawerPanel.setPadding(dp(20), dp(30), dp(20), dp(20));
-        drawerPanel.setBackground(rounded(COLOR_PANEL, 8));
+        drawerPanel.setPadding(dp(20), dp(10), dp(20), dp(16));
+        drawerPanel.setBackground(topRounded(COLOR_PANEL, 24));
         drawerPanel.setClickable(true);
         drawerPanel.setFocusable(true);
         drawerPanel.setVisibility(View.GONE);
-        drawerPanel.setTranslationX(panelWidth);
+        drawerPanel.setTranslationY(panelHeight);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
             drawerPanel.setElevation(dp(12));
         }
 
-        TextView title = text(getString(R.string.settings), 28, COLOR_INK, true);
-        title.setTypeface(Typeface.create("sans-serif", Typeface.BOLD));
-        drawerPanel.addView(title);
+        TextView handle = new TextView(this);
+        handle.setBackground(rounded(0xFFD1D6DB, 2));
+        LinearLayout.LayoutParams handleParams = new LinearLayout.LayoutParams(dp(40), dp(4));
+        handleParams.gravity = Gravity.CENTER_HORIZONTAL;
+        handleParams.bottomMargin = dp(12);
+        drawerPanel.addView(handle, handleParams);
 
-        TextView subtitle = text(getString(R.string.app_name), 14, COLOR_MUTED, false);
-        subtitle.setPadding(0, dp(4), 0, dp(18));
-        drawerPanel.addView(subtitle);
+        LinearLayout sheetHeader = new LinearLayout(this);
+        sheetHeader.setOrientation(LinearLayout.HORIZONTAL);
+        sheetHeader.setGravity(Gravity.CENTER_VERTICAL);
 
-        drawerPanel.addView(actionRow(getString(R.string.preview), v -> {
-            closeDrawer();
-            startActivity(new Intent(this, LockActivity.class));
-        }, true));
-        drawerPanel.addView(actionRow(getString(R.string.notification_permission), v -> {
-            closeDrawer();
-            openNotificationSettings();
-        }, false));
-        drawerPanel.addView(actionRow(getString(R.string.choose_lock_background), v -> {
-            closeDrawer();
-            openLockBackgroundPicker();
-        }, false));
-        drawerPanel.addView(actionRow(getString(R.string.remove_lock_background), v -> {
-            clearLockBackgroundImage();
-            setContentView(buildContent());
-            refreshTodos();
-        }, false));
-        drawerPanel.addView(actionRow(getString(R.string.language_setting) + " · " + currentLanguageName(), v -> showLanguageDialog(), false));
-        drawerPanel.addView(actionRow(getString(R.string.device_admin_action), v -> {
-            closeDrawer();
-            openDeviceAdminSettings();
-        }, false));
-        drawerPanel.addView(drawerSectionTitle(getString(R.string.battery_help_title)));
-        drawerPanel.addView(actionRow(getString(R.string.full_screen_alert_action), v -> showFullScreenIntentGuide(), false));
-        drawerPanel.addView(actionRow(getString(R.string.battery_unrestricted_action), v -> {
-            closeDrawer();
-            showBatteryGuideDialog(false);
-        }, false));
-        drawerPanel.addView(actionRow(getString(R.string.close), v -> closeDrawer(), false));
-        drawerPanel.addView(new View(this), new LinearLayout.LayoutParams(
+        drawerBackButton = new CircleIconButtonView(this, CircleIconButtonView.ICON_BACK);
+        drawerBackButton.setVisibility(View.GONE);
+        drawerBackButton.setOnClickListener(v -> showDrawerPage("home"));
+        LinearLayout.LayoutParams backParams = new LinearLayout.LayoutParams(dp(32), dp(32));
+        backParams.rightMargin = dp(8);
+        sheetHeader.addView(drawerBackButton, backParams);
+
+        LinearLayout headerCopy = new LinearLayout(this);
+        headerCopy.setOrientation(LinearLayout.VERTICAL);
+        drawerTitle = text(getString(R.string.settings), 19, COLOR_INK, true);
+        drawerTitle.setTypeface(Typeface.create("sans-serif", Typeface.BOLD));
+        headerCopy.addView(drawerTitle);
+        drawerSubtitle = text(getString(R.string.app_name), 12, COLOR_MUTED, false);
+        drawerSubtitle.setPadding(0, dp(2), 0, dp(14));
+        headerCopy.addView(drawerSubtitle);
+        sheetHeader.addView(headerCopy, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
+        CircleIconButtonView close = new CircleIconButtonView(this, CircleIconButtonView.ICON_CLOSE);
+        close.setOnClickListener(v -> closeDrawer());
+        sheetHeader.addView(close, new LinearLayout.LayoutParams(dp(32), dp(32)));
+        drawerPanel.addView(sheetHeader);
+
+        drawerMenuContent = new LinearLayout(this);
+        drawerMenuContent.setOrientation(LinearLayout.VERTICAL);
+        showDrawerPage("home");
+
+        drawerMenuScroll = new ScrollView(this);
+        drawerMenuScroll.setFillViewport(false);
+        drawerMenuScroll.setClipToPadding(false);
+        drawerMenuScroll.addView(drawerMenuContent, new ScrollView.LayoutParams(
+                ScrollView.LayoutParams.MATCH_PARENT,
+                ScrollView.LayoutParams.WRAP_CONTENT
+        ));
+        drawerPanel.addView(drawerMenuScroll, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 0,
                 1
         ));
-        drawerPanel.addView(diagnosticsButton());
-        drawerPanel.addView(betaVersionLabel());
 
         FrameLayout.LayoutParams panelParams = new FrameLayout.LayoutParams(
-                panelWidth,
                 FrameLayout.LayoutParams.MATCH_PARENT,
-                Gravity.RIGHT
+                panelHeight,
+                Gravity.BOTTOM
         );
         layer.addView(drawerPanel, panelParams);
         return layer;
+    }
+
+    private void showDrawerPage(String page) {
+        drawerPage = page;
+        if (drawerMenuContent == null || drawerTitle == null || drawerSubtitle == null) {
+            return;
+        }
+        drawerMenuContent.removeAllViews();
+        cloudAccountText = null;
+        boolean home = "home".equals(page);
+        drawerBackButton.setVisibility(home ? View.GONE : View.VISIBLE);
+        drawerTitle.setText(drawerTitleFor(page));
+        drawerSubtitle.setText(drawerSubtitleFor(page));
+        if ("lock".equals(page)) {
+            populateLockDrawerPage(drawerMenuContent);
+        } else if ("todo".equals(page)) {
+            populateTodoDrawerPage(drawerMenuContent);
+        } else if ("voice".equals(page)) {
+            populateVoiceDrawerPage(drawerMenuContent);
+        } else if ("sync".equals(page)) {
+            populateSyncDrawerPage(drawerMenuContent);
+        } else if ("permissions".equals(page)) {
+            populatePermissionsDrawerPage(drawerMenuContent);
+        } else if ("language".equals(page)) {
+            populateLanguageDrawerPage(drawerMenuContent);
+        } else if ("background".equals(page)) {
+            populateBackgroundDrawerPage(drawerMenuContent);
+        } else if ("trouble".equals(page)) {
+            populateTroubleDrawerPage(drawerMenuContent);
+        } else {
+            populateDrawerHome(drawerMenuContent);
+        }
+    }
+
+    private String drawerTitleFor(String page) {
+        if ("voice".equals(page)) return "음성 입력";
+        if ("sync".equals(page)) return "서버 동기화";
+        if ("permissions".equals(page)) return "권한과 배터리";
+        if ("language".equals(page)) return "언어와 표시";
+        if ("background".equals(page)) return "잠금화면 배경";
+        if ("trouble".equals(page)) return "문제 해결";
+        return getString(R.string.settings);
+    }
+
+    private String drawerSubtitleFor(String page) {
+        if ("voice".equals(page)) return currentSpeechLanguageName() + " · 마이크 버튼";
+        if ("sync".equals(page)) return cloudStatusLabel();
+        if ("permissions".equals(page)) return "알림, 전체 화면, 배터리";
+        if ("language".equals(page)) return currentLanguageName() + " · 초록 포인트";
+        if ("background".equals(page)) return "사진 선택과 시스템 배경";
+        if ("trouble".equals(page)) return "진단 로그와 도움말";
+        return getString(R.string.app_name);
+    }
+
+    private void populateDrawerHome(LinearLayout content) {
+        content.addView(categoryRow("음성 입력", currentSpeechLanguageName() + " · 마이크 버튼", v -> showDrawerPage("voice")));
+        content.addView(categoryRow("서버 동기화", syncHomeSummary(), v -> showDrawerPage("sync")));
+        content.addView(categoryRow("권한과 배터리", "알림, 전체 화면, 배터리 제한", v -> showDrawerPage("permissions")));
+        content.addView(categoryRow("언어와 표시", currentLanguageName() + " · 초록 포인트", v -> showDrawerPage("language")));
+        content.addView(categoryRow("잠금화면 배경", "사진 선택, 삼성/시스템 배경 사용", v -> showDrawerPage("background")));
+        content.addView(categoryRow("문제 해결", "진단 로그, 도움말, 닫기", v -> showDrawerPage("trouble")));
+        content.addView(diagnosticsButton());
+        content.addView(betaVersionLabel());
+    }
+
+    private void populateLockDrawerPage(LinearLayout content) {
+        populateBackgroundDrawerPage(content);
+    }
+
+    private void populateTodoDrawerPage(LinearLayout content) {
+        populateDrawerHome(content);
+    }
+
+    private void populateVoiceDrawerPage(LinearLayout content) {
+        content.addView(detailRow("음성 입력 언어", currentSpeechLanguageName(), v -> showSpeechLanguageDialog(), false));
+        content.addView(detailRow("마이크 권한", "잠금화면 마이크 버튼에 필요", v -> requestRecordAudioPermission(), false));
+        content.addView(detailRow("잠금화면 마이크 테스트", "상단 미리보기 버튼으로 확인", v -> {
+            closeDrawer();
+            startActivity(new Intent(this, LockActivity.class));
+        }, false));
+    }
+
+    private void populateSyncDrawerPage(LinearLayout content) {
+        content.addView(detailRow("로그인", syncLoginSummary(), v -> handleCloudAccount(), true));
+        content.addView(detailRow("서버 저장 상태", cloudServerStatusSummary(), v -> showServerTodosDialog(), false));
+    }
+
+    private void populatePermissionsDrawerPage(LinearLayout content) {
+        content.addView(detailRow(getString(R.string.notification_permission), "알림 권한 설정", v -> {
+            closeDrawer();
+            openNotificationSettings();
+        }, false));
+        content.addView(detailRow(getString(R.string.full_screen_alert_action), "잠금화면 위에 앱을 띄우기", v -> showFullScreenIntentGuide(), false));
+        content.addView(detailRow(getString(R.string.device_admin_action), "더블탭 화면 끄기에 필요", v -> {
+            closeDrawer();
+            openDeviceAdminSettings();
+        }, false));
+        content.addView(detailRow(getString(R.string.battery_unrestricted_action), "앱이 백그라운드에서 꺼지지 않게 설정", v -> {
+            closeDrawer();
+            showBatteryGuideDialog(false);
+        }, false));
+    }
+
+    private void populateLanguageDrawerPage(LinearLayout content) {
+        content.addView(detailRow(getString(R.string.language_setting), currentLanguageName(), v -> showLanguageDialog(), false));
+        content.addView(detailRow("포인트 컬러", "초록 #5F8F73", v -> {}, false));
+    }
+
+    private void populateBackgroundDrawerPage(LinearLayout content) {
+        content.addView(detailRow(getString(R.string.choose_lock_background), "직접 고른 사진을 잠금화면 배경으로 사용", v -> {
+            closeDrawer();
+            openLockBackgroundPicker();
+        }, false));
+        content.addView(detailRow(getString(R.string.remove_lock_background), "삼성/시스템 잠금화면 배경으로 되돌리기", v -> {
+            clearLockBackgroundImage();
+            showDrawerPage("background");
+        }, false));
+    }
+
+    private void populateTroubleDrawerPage(LinearLayout content) {
+        content.addView(detailRow(getString(R.string.battery_help_title), "할 일 커튼이 종료될 때 확인", v -> showBatteryGuideDialog(false), false));
+        content.addView(detailRow(getString(R.string.diagnostics_title), "현재 상태 로그 보기", v -> showDiagnosticsDialog(), false));
+        content.addView(detailRow(getString(R.string.close), "앱 화면 닫기", v -> closeDrawer(), false));
+        content.addView(betaVersionLabel());
     }
 
     private final class DrawerRootLayout extends FrameLayout {
@@ -665,9 +913,13 @@ public class MainActivity extends Activity {
                     }
                     return super.onInterceptTouchEvent(event);
                 case MotionEvent.ACTION_MOVE:
-                    float dx = Math.max(0f, event.getRawX() - drawerDownX);
+                    float dx = event.getRawX() - drawerDownX;
                     float dy = event.getRawY() - drawerDownY;
-                    if (!drawerSwiping && dx > dp(14) && dx > Math.abs(dy) * 1.2f) {
+                    boolean canPullSheet = drawerMenuScroll == null || !drawerMenuScroll.canScrollVertically(-1);
+                    if (!drawerSwiping
+                            && canPullSheet
+                            && dy > dp(14)
+                            && dy > Math.abs(dx) * 1.2f) {
                         drawerSwiping = true;
                     }
                     return drawerSwiping || super.onInterceptTouchEvent(event);
@@ -687,20 +939,20 @@ public class MainActivity extends Activity {
             }
             switch (event.getActionMasked()) {
                 case MotionEvent.ACTION_MOVE:
-                    float dx = Math.max(0f, event.getRawX() - drawerDownX);
-                    setTranslationX(dx * 0.9f);
+                    float dy = Math.max(0f, event.getRawY() - drawerDownY);
+                    setTranslationY(dy);
                     if (drawerScrim != null) {
-                        drawerScrim.setAlpha(Math.max(0f, 1f - dx / Math.max(1, getWidth())));
+                        drawerScrim.setAlpha(Math.max(0f, 1f - dy / Math.max(1, getHeight())));
                     }
                     return true;
                 case MotionEvent.ACTION_UP:
                 case MotionEvent.ACTION_CANCEL:
                     drawerSwiping = false;
-                    float releaseDx = event.getRawX() - drawerDownX;
-                    if (releaseDx > Math.max(dp(90), getWidth() * 0.22f)) {
+                    float releaseDy = event.getRawY() - drawerDownY;
+                    if (releaseDy > Math.max(dp(90), getHeight() * 0.16f)) {
                         closeDrawer();
                     } else {
-                        animate().translationX(0f).setDuration(140).start();
+                        animate().translationY(0f).setDuration(140).start();
                         if (drawerScrim != null) {
                             drawerScrim.animate().alpha(1f).setDuration(140).start();
                         }
@@ -716,15 +968,17 @@ public class MainActivity extends Activity {
         if (drawerPanel == null || drawerScrim == null || drawerOpen) {
             return;
         }
+        showDrawerPage("home");
         drawerOpen = true;
         drawerScrim.animate().cancel();
         drawerPanel.animate().cancel();
         drawerScrim.setVisibility(View.VISIBLE);
         drawerPanel.setVisibility(View.VISIBLE);
+        drawerPanel.setTranslationX(0f);
         drawerScrim.animate().alpha(1f).setDuration(180).start();
         drawerPanel.animate()
-                .translationX(0f)
-                .setDuration(220)
+                .translationY(0f)
+                .setDuration(260)
                 .start();
         drawerPanel.requestFocus();
     }
@@ -734,9 +988,9 @@ public class MainActivity extends Activity {
             return;
         }
         drawerOpen = false;
-        int panelWidth = drawerPanel.getWidth() > 0
-                ? drawerPanel.getWidth()
-                : Math.round(getResources().getDisplayMetrics().widthPixels * 5f / 6f);
+        int panelHeight = drawerPanel.getHeight() > 0
+                ? drawerPanel.getHeight()
+                : Math.round(getResources().getDisplayMetrics().heightPixels * 0.80f);
         drawerScrim.animate().cancel();
         drawerPanel.animate().cancel();
         drawerScrim.animate()
@@ -745,21 +999,301 @@ public class MainActivity extends Activity {
                 .withEndAction(() -> drawerScrim.setVisibility(View.GONE))
                 .start();
         drawerPanel.animate()
-                .translationX(panelWidth)
-                .setDuration(180)
+                .translationY(panelHeight)
+                .setDuration(220)
                 .withEndAction(() -> drawerPanel.setVisibility(View.GONE))
                 .start();
+    }
+
+    private String cloudAccountLabel() {
+        FirebaseUser user = FirebaseTodoSync.currentUser(this);
+        if (user == null) {
+            return getString(R.string.google_sign_in);
+        }
+        String account = user.getEmail();
+        if (account == null || account.trim().isEmpty()) {
+            account = user.getDisplayName();
+        }
+        if (account == null || account.trim().isEmpty()) {
+            account = getString(R.string.google_account);
+        }
+        return account + " \u00B7 " + cloudStatusLabel();
+    }
+
+    private String syncHomeSummary() {
+        FirebaseUser user = FirebaseTodoSync.currentUser(this);
+        return user == null ? getString(R.string.google_sign_in) : syncLoginSummary() + " · " + cloudServerStatusSummary();
+    }
+
+    private String syncLoginSummary() {
+        FirebaseUser user = FirebaseTodoSync.currentUser(this);
+        if (user == null) {
+            return getString(R.string.google_sign_in);
+        }
+        String account = user.getEmail();
+        if (account == null || account.trim().isEmpty()) {
+            account = user.getDisplayName();
+        }
+        if (account == null || account.trim().isEmpty()) {
+            account = getString(R.string.google_account);
+        }
+        return account + " · 로그인됨";
+    }
+
+    private void updateCloudAccountLabel() {
+        if (cloudAccountText != null) {
+            cloudAccountText.setText(cloudAccountLabel());
+        }
+    }
+
+    private void refreshDrawerIfOpen() {
+        if (drawerOpen && drawerMenuContent != null) {
+            showDrawerPage(drawerPage);
+        } else {
+            updateCloudAccountLabel();
+        }
+    }
+
+    private String cloudStatusLabel() {
+        if ("syncing".equals(cloudSyncStatus)) {
+            return getString(R.string.cloud_syncing);
+        }
+        if ("offline".equals(cloudSyncStatus)) {
+            return cloudServerItemCount >= 0
+                    ? getString(R.string.cloud_offline) + " \u00B7 " + cloudServerSummary()
+                    : getString(R.string.cloud_offline);
+        }
+        if (cloudServerItemCount >= 0) {
+            return cloudServerSummary();
+        }
+        return getString(R.string.cloud_synced);
+    }
+
+    private String cloudServerSummary() {
+        String time = cloudServerUpdatedAt > 0
+                ? android.text.format.DateFormat.getTimeFormat(this).format(new Date(cloudServerUpdatedAt))
+                : "-";
+        return getString(R.string.cloud_server_summary, cloudServerItemCount, time);
+    }
+
+    private String cloudServerStatusSummary() {
+        if (!cloudServerItemsLoaded && cloudServerItemCount < 0) {
+            return "아직 서버 목록을 불러오지 못했습니다";
+        }
+        String time = cloudServerUpdatedAt > 0
+                ? android.text.format.DateFormat.getTimeFormat(this).format(new Date(cloudServerUpdatedAt))
+                : "-";
+        int count = cloudServerItemsLoaded ? cloudServerItems.size() : Math.max(0, cloudServerItemCount);
+        return "서버에 저장된 메모 " + count + "개 · " + time + " 기준";
+    }
+
+    private void showServerTodosDialog() {
+        Dialog dialog = new Dialog(this);
+        dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
+
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setPadding(dp(20), dp(18), dp(20), dp(14));
+        box.setBackground(rounded(COLOR_PANEL, 16));
+
+        TextView title = text("서버 저장 상태", 20, COLOR_INK, true);
+        box.addView(title);
+
+        TextView summary = text(cloudServerStatusSummary(), 13, COLOR_MUTED, false);
+        summary.setPadding(0, dp(4), 0, dp(12));
+        box.addView(summary);
+
+        LinearLayout list = new LinearLayout(this);
+        list.setOrientation(LinearLayout.VERTICAL);
+        if (!cloudServerItemsLoaded) {
+            TextView empty = text("아직 서버 목록을 불러오지 못했습니다.", 14, COLOR_MUTED, false);
+            empty.setGravity(Gravity.CENTER);
+            empty.setPadding(dp(12), dp(22), dp(12), dp(22));
+            list.addView(empty);
+        } else if (cloudServerItems.isEmpty()) {
+            TextView empty = text("서버에 저장된 메모가 없습니다.", 14, COLOR_MUTED, false);
+            empty.setGravity(Gravity.CENTER);
+            empty.setPadding(dp(12), dp(22), dp(12), dp(22));
+            list.addView(empty);
+        } else {
+            for (TodoItem item : cloudServerItems) {
+                TextView row = text((item.done ? "✓ " : "□ ") + item.text, 14, item.done ? COLOR_MUTED : COLOR_INK, false);
+                row.setPadding(dp(12), dp(10), dp(12), dp(10));
+                row.setBackground(rounded(COLOR_FIELD, 12));
+                LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT,
+                        LinearLayout.LayoutParams.WRAP_CONTENT
+                );
+                params.bottomMargin = dp(8);
+                list.addView(row, params);
+            }
+        }
+
+        ScrollView scroll = new ScrollView(this);
+        scroll.addView(list, new ScrollView.LayoutParams(
+                ScrollView.LayoutParams.MATCH_PARENT,
+                ScrollView.LayoutParams.WRAP_CONTENT
+        ));
+        box.addView(scroll, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                Math.min(dp(420), Math.round(getResources().getDisplayMetrics().heightPixels * 0.48f))
+        ));
+
+        Button close = filledButton(getString(R.string.close));
+        close.setOnClickListener(v -> dialog.dismiss());
+        LinearLayout.LayoutParams closeParams = new LinearLayout.LayoutParams(dp(96), dp(44));
+        closeParams.gravity = Gravity.RIGHT;
+        closeParams.topMargin = dp(12);
+        box.addView(close, closeParams);
+
+        dialog.setContentView(box);
+        dialog.show();
+
+        Window dialogWindow = dialog.getWindow();
+        if (dialogWindow != null) {
+            dialogWindow.setBackgroundDrawable(new ColorDrawable(0x00000000));
+            dialogWindow.setLayout(
+                    Math.min(getResources().getDisplayMetrics().widthPixels - dp(32), dp(480)),
+                    FrameLayout.LayoutParams.WRAP_CONTENT
+            );
+        }
+    }
+
+    private void handleCloudAccount() {
+        FirebaseUser user = FirebaseTodoSync.currentUser(this);
+        if (user == null) {
+            beginGoogleSignIn();
+            return;
+        }
+        new AlertDialog.Builder(this)
+                .setTitle(R.string.google_sign_out_title)
+                .setMessage(user.getEmail() == null ? getString(R.string.google_account) : user.getEmail())
+                .setNegativeButton(R.string.cancel, null)
+                .setPositiveButton(R.string.google_sign_out, (dialog, which) -> {
+                    FirebaseTodoSync.signOut(this);
+                    Toast.makeText(this, R.string.google_signed_out, Toast.LENGTH_SHORT).show();
+                    setContentView(buildContent());
+                    refreshTodos();
+                })
+                .show();
+    }
+
+    private void beginGoogleSignIn() {
+        if (!FirebaseTodoSync.isConfigured(this)) {
+            new AlertDialog.Builder(this)
+                    .setTitle(R.string.firebase_setup_required_title)
+                    .setMessage(R.string.firebase_setup_required_body)
+                    .setPositiveButton(R.string.close, null)
+                    .show();
+            return;
+        }
+
+        beginLegacyGoogleSignIn();
+    }
+
+    private void beginCredentialManagerGoogleSignIn() {
+        GetGoogleIdOption googleIdOption = new GetGoogleIdOption.Builder()
+                .setFilterByAuthorizedAccounts(false)
+                .setServerClientId(FirebaseTodoSync.webClientId(this))
+                .setAutoSelectEnabled(false)
+                .build();
+        GetCredentialRequest request = new GetCredentialRequest.Builder()
+                .addCredentialOption(googleIdOption)
+                .build();
+        CredentialManager manager = CredentialManager.create(this);
+        Executor mainExecutor = command -> runOnUiThread(command);
+        manager.getCredentialAsync(
+                this,
+                request,
+                new CancellationSignal(),
+                mainExecutor,
+                new CredentialManagerCallback<GetCredentialResponse, GetCredentialException>() {
+                    @Override
+                    public void onResult(GetCredentialResponse response) {
+                        authenticateGoogleCredential(response.getCredential());
+                    }
+
+                    @Override
+                    public void onError(GetCredentialException error) {
+                        DiagnosticLog.record(MainActivity.this, "NudgeMain", "Google credential failed; falling back", error);
+                        beginLegacyGoogleSignIn();
+                    }
+                }
+        );
+    }
+
+    private void beginLegacyGoogleSignIn() {
+        GoogleSignInOptions options = new GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
+                .requestIdToken(FirebaseTodoSync.webClientId(this))
+                .requestEmail()
+                .build();
+        Intent signInIntent = GoogleSignIn.getClient(this, options).getSignInIntent();
+        startActivityForResult(signInIntent, REQUEST_GOOGLE_SIGN_IN);
+    }
+
+    private void handleLegacyGoogleSignInResult(Intent data) {
+        Task<GoogleSignInAccount> task = GoogleSignIn.getSignedInAccountFromIntent(data);
+        try {
+            GoogleSignInAccount account = task.getResult(ApiException.class);
+            if (account == null || account.getIdToken() == null) {
+                Toast.makeText(this, R.string.google_sign_in_failed, Toast.LENGTH_SHORT).show();
+                return;
+            }
+            authenticateFirebaseToken(account.getIdToken());
+        } catch (ApiException error) {
+            DiagnosticLog.record(this, "NudgeMain", "Legacy Google sign-in failed status=" + error.getStatusCode(), error);
+            Toast.makeText(this, R.string.google_sign_in_failed, Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    private void authenticateGoogleCredential(Credential credential) {
+        if (!(credential instanceof CustomCredential)
+                || !GoogleIdTokenCredential.TYPE_GOOGLE_ID_TOKEN_CREDENTIAL.equals(credential.getType())) {
+            Toast.makeText(this, R.string.google_sign_in_failed, Toast.LENGTH_SHORT).show();
+            return;
+        }
+        GoogleIdTokenCredential googleCredential;
+        try {
+            googleCredential = GoogleIdTokenCredential.createFrom(credential.getData());
+        } catch (RuntimeException error) {
+            DiagnosticLog.record(this, "NudgeMain", "Google ID token parsing failed", error);
+            Toast.makeText(this, R.string.google_sign_in_failed, Toast.LENGTH_SHORT).show();
+            return;
+        }
+        authenticateFirebaseToken(googleCredential.getIdToken());
+    }
+
+    private void authenticateFirebaseToken(String idToken) {
+        AuthCredential firebaseCredential = GoogleAuthProvider.getCredential(idToken, null);
+        FirebaseAuth.getInstance().signInWithCredential(firebaseCredential)
+                .addOnCompleteListener(this, task -> {
+                    if (!task.isSuccessful()) {
+                        DiagnosticLog.record(
+                                MainActivity.this,
+                                "NudgeMain",
+                                "Firebase sign-in failed",
+                                task.getException()
+                        );
+                        Toast.makeText(this, R.string.google_sign_in_failed, Toast.LENGTH_SHORT).show();
+                        return;
+                    }
+                    cloudSyncStatus = "syncing";
+                    FirebaseTodoSync.start(this, cloudSyncListener);
+                    Toast.makeText(this, R.string.google_signed_in, Toast.LENGTH_SHORT).show();
+                    setContentView(buildContent());
+                    refreshTodos();
+                });
     }
 
     private View sectionTitle(String title, String subtitle) {
         LinearLayout box = new LinearLayout(this);
         box.setOrientation(LinearLayout.VERTICAL);
 
-        TextView titleView = text(title, 17, COLOR_INK, true);
+        TextView titleView = text(title, 12, COLOR_MUTED, true);
         box.addView(titleView);
 
         if (subtitle != null && subtitle.length() > 0) {
-            TextView subtitleView = text(subtitle, 14, COLOR_MUTED, false);
+            TextView subtitleView = text(subtitle, 12, 0xFFC9CDD2, false);
             subtitleView.setPadding(0, dp(4), 0, 0);
             box.addView(subtitleView);
         }
@@ -805,7 +1339,7 @@ public class MainActivity extends Activity {
             TextView empty = text(getString(R.string.empty_todos_main), 15, COLOR_MUTED, false);
             empty.setGravity(Gravity.CENTER);
             empty.setPadding(0, dp(24), 0, dp(18));
-            empty.setBackground(rounded(COLOR_FIELD, 8));
+            empty.setBackground(rounded(COLOR_FIELD, 16));
             todoList.addView(empty, new LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT,
                     dp(86)
@@ -828,10 +1362,12 @@ public class MainActivity extends Activity {
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setPadding(dp(8), dp(8), dp(8), dp(8));
-        row.setBackground(rounded(item.done ? COLOR_FIELD : 0x00FFFFFF, 8));
+        row.setPadding(dp(8), dp(6), dp(4), dp(6));
+        row.setBackground(rounded(item.done ? COLOR_FIELD : COLOR_PANEL, 16));
+        row.setTag(item.id);
 
         CheckBox checkBox = new CheckBox(this);
+        tintCheckBox(checkBox);
         checkBox.setChecked(item.done);
         checkBox.setOnCheckedChangeListener((buttonView, isChecked) -> {
             TodoStore.setDone(this, item.id, isChecked);
@@ -843,6 +1379,8 @@ public class MainActivity extends Activity {
         if (item.done) {
             label.setPaintFlags(label.getPaintFlags() | Paint.STRIKE_THRU_TEXT_FLAG);
         }
+        label.setOnClickListener(v -> handleMainTodoTap(item));
+        label.setOnLongClickListener(v -> startMainTodoDrag(row, item));
         row.addView(label, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
 
         Button delete = quietButton(getString(R.string.delete), COLOR_DANGER);
@@ -854,6 +1392,168 @@ public class MainActivity extends Activity {
         });
         row.addView(delete, new LinearLayout.LayoutParams(dp(68), dp(42)));
         return row;
+    }
+
+    private void handleMainTodoTap(TodoItem item) {
+        long now = SystemClock.uptimeMillis();
+        if (lastTodoTapId == item.id && now - lastTodoTapAt <= TODO_DOUBLE_TAP_MS) {
+            lastTodoTapId = -1L;
+            lastTodoTapAt = 0L;
+            showMainEditTodoDialog(item);
+            return;
+        }
+        lastTodoTapId = item.id;
+        lastTodoTapAt = now;
+    }
+
+    private boolean startMainTodoDrag(View row, TodoItem item) {
+        draggingMainTodoRow = row;
+        mainTodoDropIndex = indexOfMainTodoRow(row);
+        mainTodoDropCommitted = false;
+        row.setAlpha(0.35f);
+        ClipData data = ClipData.newPlainText("todo", Long.toString(item.id));
+        boolean started = row.startDragAndDrop(data, new View.DragShadowBuilder(row), item.id, 0);
+        if (!started) {
+            resetMainTodoDragVisuals();
+        }
+        return started;
+    }
+
+    private boolean handleMainTodoDrag(DragEvent event) {
+        if (!(event.getLocalState() instanceof Long)) {
+            return false;
+        }
+        switch (event.getAction()) {
+            case DragEvent.ACTION_DRAG_STARTED:
+                return true;
+            case DragEvent.ACTION_DRAG_LOCATION:
+                mainTodoDropIndex = mainTodoIndexAt(event.getY());
+                updateMainTodoDragPreview();
+                return true;
+            case DragEvent.ACTION_DROP:
+                mainTodoDropIndex = mainTodoIndexAt(event.getY());
+                TodoStore.move(this, (Long) event.getLocalState(), mainTodoDropIndex);
+                mainTodoDropCommitted = true;
+                return true;
+            case DragEvent.ACTION_DRAG_ENDED:
+                boolean refresh = mainTodoDropCommitted;
+                resetMainTodoDragVisuals();
+                if (refresh && todoList != null) {
+                    todoList.post(this::refreshTodos);
+                }
+                return true;
+            default:
+                return true;
+        }
+    }
+
+    private int indexOfMainTodoRow(View row) {
+        return todoList == null ? -1 : todoList.indexOfChild(row);
+    }
+
+    private int mainTodoIndexAt(float localY) {
+        if (todoList == null || todoList.getChildCount() == 0) {
+            return 0;
+        }
+        for (int i = 0; i < todoList.getChildCount(); i++) {
+            View child = todoList.getChildAt(i);
+            if (localY < child.getTop() + child.getHeight() * 0.5f) {
+                return i;
+            }
+        }
+        return todoList.getChildCount() - 1;
+    }
+
+    private void updateMainTodoDragPreview() {
+        if (todoList == null) {
+            return;
+        }
+        for (int i = 0; i < todoList.getChildCount(); i++) {
+            View child = todoList.getChildAt(i);
+            if (child == draggingMainTodoRow) {
+                child.setAlpha(0.35f);
+            } else {
+                child.setAlpha(i == mainTodoDropIndex ? 0.6f : 1f);
+            }
+        }
+    }
+
+    private void resetMainTodoDragVisuals() {
+        if (todoList != null) {
+            for (int i = 0; i < todoList.getChildCount(); i++) {
+                todoList.getChildAt(i).setAlpha(1f);
+            }
+        }
+        draggingMainTodoRow = null;
+        mainTodoDropIndex = -1;
+        mainTodoDropCommitted = false;
+    }
+
+    private void showMainEditTodoDialog(TodoItem item) {
+        Dialog dialog = new Dialog(this);
+        LinearLayout panel = new LinearLayout(this);
+        panel.setOrientation(LinearLayout.VERTICAL);
+        panel.setPadding(dp(22), dp(20), dp(22), dp(16));
+        panel.setBackground(rounded(COLOR_PANEL, 18));
+
+        TextView title = text(getString(R.string.edit_todo), 17, COLOR_INK, true);
+        title.setGravity(Gravity.CENTER);
+        panel.addView(title);
+
+        EditText editor = new EditText(this);
+        editor.setSingleLine(true);
+        editor.setText(item.text);
+        editor.setSelection(editor.getText().length());
+        editor.setTextColor(COLOR_INK);
+        editor.setTextSize(16);
+        editor.setGravity(Gravity.CENTER_VERTICAL);
+        editor.setPadding(dp(12), 0, dp(12), 0);
+        editor.setBackground(rounded(COLOR_FIELD, 10));
+        LinearLayout.LayoutParams editorParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                dp(52)
+        );
+        editorParams.topMargin = dp(14);
+        panel.addView(editor, editorParams);
+
+        LinearLayout actions = new LinearLayout(this);
+        actions.setGravity(Gravity.RIGHT | Gravity.CENTER_VERTICAL);
+        LinearLayout.LayoutParams actionsParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                dp(48)
+        );
+        actionsParams.topMargin = dp(10);
+        panel.addView(actions, actionsParams);
+
+        Button cancel = quietButton(getString(R.string.cancel), COLOR_MUTED);
+        cancel.setOnClickListener(v -> dialog.dismiss());
+        actions.addView(cancel, new LinearLayout.LayoutParams(dp(76), dp(44)));
+
+        Button save = filledButton(getString(R.string.save));
+        save.setOnClickListener(v -> {
+            TodoStore.setText(this, item.id, editor.getText().toString());
+            dialog.dismiss();
+            refreshTodos();
+        });
+        LinearLayout.LayoutParams saveParams = new LinearLayout.LayoutParams(dp(76), dp(44));
+        saveParams.leftMargin = dp(8);
+        actions.addView(save, saveParams);
+
+        dialog.setContentView(panel);
+        dialog.setOnShowListener(ignored -> {
+            editor.requestFocus();
+            Window window = dialog.getWindow();
+            if (window != null) {
+                window.setBackgroundDrawable(new ColorDrawable(0x00000000));
+                window.setDimAmount(0.32f);
+                window.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_VISIBLE);
+                window.setLayout(
+                        Math.round(getResources().getDisplayMetrics().widthPixels * 0.86f),
+                        android.view.WindowManager.LayoutParams.WRAP_CONTENT
+                );
+            }
+        });
+        dialog.show();
     }
 
     private void undoDelete() {
@@ -882,10 +1582,27 @@ public class MainActivity extends Activity {
         }
     }
 
-    private void requestNotificationPermission() {
+    private boolean requestNotificationPermission() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
                 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
             requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, REQUEST_NOTIFICATIONS);
+            return true;
+        }
+        return false;
+    }
+
+    private void requestRecordAudioPermission() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M
+                && checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO}, REQUEST_RECORD_AUDIO);
+        }
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode == REQUEST_NOTIFICATIONS) {
+            requestRecordAudioPermission();
         }
     }
 
@@ -1211,6 +1928,68 @@ public class MainActivity extends Activity {
         }
     }
 
+    private void showSpeechLanguageDialog() {
+        Dialog dialog = new Dialog(this);
+        dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
+
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setPadding(dp(20), dp(18), dp(20), dp(14));
+        box.setBackground(rounded(COLOR_PANEL, 12));
+
+        TextView title = text("음성 입력 언어", 20, COLOR_INK, true);
+        box.addView(title);
+
+        RadioGroup group = new RadioGroup(this);
+        group.setOrientation(RadioGroup.VERTICAL);
+        group.setPadding(0, dp(12), 0, dp(8));
+
+        addLanguageOption(group, "ko-KR", getString(R.string.language_korean));
+        addLanguageOption(group, "en-US", getString(R.string.language_english));
+        addLanguageOption(group, "ja-JP", "日本語");
+        addLanguageOption(group, "zh-TW", getString(R.string.language_traditional_chinese));
+        addLanguageOption(group, "", "앱 언어 따름");
+
+        String current = AppSettings.speechLanguageTag(this);
+        for (int i = 0; i < group.getChildCount(); i++) {
+            View child = group.getChildAt(i);
+            if (child instanceof RadioButton && current.equals(String.valueOf(child.getTag()))) {
+                ((RadioButton) child).setChecked(true);
+                break;
+            }
+        }
+
+        group.setOnCheckedChangeListener((radioGroup, checkedId) -> {
+            RadioButton checked = radioGroup.findViewById(checkedId);
+            if (checked == null) {
+                return;
+            }
+            AppSettings.setSpeechLanguageTag(this, String.valueOf(checked.getTag()));
+            DiagnosticLog.recordAppState(this, "speech language changed tag=" + checked.getTag());
+            dialog.dismiss();
+            showDrawerPage(drawerPage);
+        });
+        box.addView(group);
+
+        Button close = quietButton(getString(R.string.close), COLOR_MUTED);
+        close.setOnClickListener(v -> dialog.dismiss());
+        LinearLayout.LayoutParams closeParams = new LinearLayout.LayoutParams(dp(96), dp(44));
+        closeParams.gravity = Gravity.RIGHT;
+        box.addView(close, closeParams);
+
+        dialog.setContentView(box);
+        dialog.show();
+
+        Window dialogWindow = dialog.getWindow();
+        if (dialogWindow != null) {
+            dialogWindow.setBackgroundDrawable(new ColorDrawable(0x00000000));
+            dialogWindow.setLayout(
+                    Math.min(getResources().getDisplayMetrics().widthPixels - dp(40), dp(420)),
+                    FrameLayout.LayoutParams.WRAP_CONTENT
+            );
+        }
+    }
+
     private void addLanguageOption(RadioGroup group, String languageTag, String label) {
         RadioButton option = new RadioButton(this);
         option.setText(label);
@@ -1253,11 +2032,28 @@ public class MainActivity extends Activity {
         return getString(R.string.language_system);
     }
 
+    private String currentSpeechLanguageName() {
+        String languageTag = AppSettings.speechLanguageTag(this);
+        if ("ko-KR".equals(languageTag)) {
+            return getString(R.string.language_korean);
+        }
+        if ("en-US".equals(languageTag)) {
+            return getString(R.string.language_english);
+        }
+        if ("ja-JP".equals(languageTag)) {
+            return "日本語";
+        }
+        if ("zh-TW".equals(languageTag)) {
+            return getString(R.string.language_traditional_chinese);
+        }
+        return "앱 언어 따름";
+    }
+
     private LinearLayout card() {
         LinearLayout card = new LinearLayout(this);
         card.setOrientation(LinearLayout.VERTICAL);
-        card.setPadding(dp(16), dp(15), dp(16), dp(16));
-        card.setBackground(rounded(COLOR_PANEL, 8));
+        card.setPadding(dp(20), dp(18), dp(20), dp(16));
+        card.setBackground(rounded(COLOR_PANEL, 24));
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
             card.setElevation(0);
         }
@@ -1282,21 +2078,166 @@ public class MainActivity extends Activity {
 
     private View actionRow(String label, View.OnClickListener listener, boolean first) {
         LinearLayout row = new LinearLayout(this);
-        row.setOrientation(LinearLayout.VERTICAL);
-        if (!first) {
-            row.addView(divider(0));
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(0, dp(2), 0, dp(2));
+
+        TextView icon = text("\u25CB", 18, COLOR_ACCENT, true);
+        icon.setGravity(Gravity.CENTER);
+        icon.setBackground(rounded(0xFFEFF6F1, 16));
+        row.addView(icon, new LinearLayout.LayoutParams(dp(32), dp(32)));
+
+        TextView textView = text(label, 15, COLOR_INK, false);
+        textView.setGravity(Gravity.CENTER_VERTICAL);
+        textView.setPadding(dp(12), 0, 0, 0);
+        row.addView(textView, new LinearLayout.LayoutParams(0, dp(52), 1));
+        if (first) {
+            cloudAccountText = textView;
+        }
+        TextView chevron = text("\u203A", 22, 0xFFC9CDD2, false);
+        chevron.setGravity(Gravity.CENTER);
+        row.addView(chevron, new LinearLayout.LayoutParams(dp(24), dp(52)));
+        row.setOnClickListener(listener);
+        return row;
+    }
+
+    private View categoryRow(String title, String subtitle, View.OnClickListener listener) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(dp(14), dp(8), dp(8), dp(8));
+        row.setBackground(rounded(COLOR_FIELD, 18));
+        row.setOnClickListener(listener);
+
+        LinearLayout copy = new LinearLayout(this);
+        copy.setOrientation(LinearLayout.VERTICAL);
+        TextView titleView = text(title, 16, COLOR_INK, true);
+        TextView subtitleView = text(subtitle, 12, COLOR_MUTED, false);
+        subtitleView.setPadding(0, dp(3), 0, 0);
+        copy.addView(titleView);
+        copy.addView(subtitleView);
+        row.addView(copy, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
+
+        TextView chevron = text("\u203A", 24, 0xFFC9CDD2, false);
+        chevron.setGravity(Gravity.CENTER);
+        row.addView(chevron, new LinearLayout.LayoutParams(dp(28), dp(54)));
+
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+        );
+        params.bottomMargin = dp(8);
+        row.setLayoutParams(params);
+        return row;
+    }
+
+    private View detailRow(String title, String subtitle, View.OnClickListener listener, boolean cloudRow) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(0, dp(4), 0, dp(4));
+        row.setOnClickListener(listener);
+
+        LinearLayout copy = new LinearLayout(this);
+        copy.setOrientation(LinearLayout.VERTICAL);
+        TextView titleView = text(title, 15, COLOR_INK, false);
+        TextView subtitleView = text(subtitle == null ? "" : subtitle, 12, COLOR_MUTED, false);
+        subtitleView.setPadding(0, dp(3), 0, 0);
+        copy.addView(titleView);
+        copy.addView(subtitleView);
+        row.addView(copy, new LinearLayout.LayoutParams(0, dp(58), 1));
+        if (cloudRow) {
+            cloudAccountText = titleView;
         }
 
-        TextView textView = text(label, 16, COLOR_INK, false);
-        textView.setGravity(Gravity.CENTER_VERTICAL);
-        textView.setText(label + "  \u203a");
-        textView.setPadding(0, dp(13), 0, dp(12));
-        textView.setOnClickListener(listener);
-        row.addView(textView, new LinearLayout.LayoutParams(
+        TextView chevron = text("\u203A", 22, 0xFFC9CDD2, false);
+        chevron.setGravity(Gravity.CENTER);
+        row.addView(chevron, new LinearLayout.LayoutParams(dp(24), dp(58)));
+        return row;
+    }
+
+    private View switchRow(String title, String subtitle, boolean checked, BooleanSetting listener) {
+        LinearLayout row = settingBaseRow(title, subtitle);
+        Switch switchView = new Switch(this);
+        tintSwitch(switchView);
+        switchView.setChecked(checked);
+        switchView.setOnCheckedChangeListener((buttonView, isChecked) -> listener.set(isChecked));
+        row.addView(switchView, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+        ));
+        return row;
+    }
+
+    private View checkRow(String title, String subtitle, boolean checked, BooleanSetting listener) {
+        LinearLayout row = settingBaseRow(title, subtitle);
+        CheckBox checkBox = new CheckBox(this);
+        tintCheckBox(checkBox);
+        checkBox.setChecked(checked);
+        checkBox.setOnCheckedChangeListener((buttonView, isChecked) -> listener.set(isChecked));
+        row.addView(checkBox, new LinearLayout.LayoutParams(dp(48), dp(48)));
+        return row;
+    }
+
+    private View opacityRow() {
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setPadding(0, dp(8), 0, dp(10));
+
+        LinearLayout header = new LinearLayout(this);
+        header.setGravity(Gravity.CENTER_VERTICAL);
+        opacityValue = text(AppSettings.overlayOpacity(this) + "%", 15, COLOR_ACCENT, false);
+        header.addView(text(getString(R.string.overlay_opacity), 15, COLOR_INK, false),
+                new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
+        opacityValue.setGravity(Gravity.RIGHT);
+        header.addView(opacityValue, new LinearLayout.LayoutParams(dp(70), LinearLayout.LayoutParams.WRAP_CONTENT));
+        box.addView(header);
+
+        SeekBar opacity = new SeekBar(this);
+        tintSeekBar(opacity);
+        opacity.setMax(20);
+        opacity.setProgress(Math.round(AppSettings.overlayOpacity(this) / 5f));
+        opacity.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            @Override
+            public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
+                int snapped = progress * 5;
+                AppSettings.setOverlayOpacity(MainActivity.this, snapped);
+                opacityValue.setText(snapped + "%");
+            }
+
+            @Override
+            public void onStartTrackingTouch(SeekBar seekBar) {}
+
+            @Override
+            public void onStopTrackingTouch(SeekBar seekBar) {}
+        });
+        box.addView(opacity, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 dp(48)
         ));
+        return box;
+    }
+
+    private LinearLayout settingBaseRow(String title, String subtitle) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(0, dp(6), 0, dp(6));
+
+        LinearLayout copy = new LinearLayout(this);
+        copy.setOrientation(LinearLayout.VERTICAL);
+        copy.addView(text(title, 15, COLOR_INK, false));
+        if (subtitle != null && subtitle.length() > 0) {
+            TextView subtitleView = text(subtitle, 12, COLOR_MUTED, false);
+            subtitleView.setPadding(0, dp(3), dp(10), 0);
+            copy.addView(subtitleView);
+        }
+        row.addView(copy, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
         return row;
+    }
+
+    private interface BooleanSetting {
+        void set(boolean value);
     }
 
     private View drawerSectionTitle(String label) {
@@ -1423,7 +2364,7 @@ public class MainActivity extends Activity {
     private Button filledButton(String label) {
         Button button = baseButton(label);
         button.setTextColor(0xFFFFFFFF);
-        button.setBackground(rounded(COLOR_ACCENT, 8));
+        button.setBackground(rounded(COLOR_ACCENT, 16));
         return button;
     }
 
@@ -1432,6 +2373,39 @@ public class MainActivity extends Activity {
         button.setTextColor(color);
         button.setBackground(rounded(0x00FFFFFF, 8));
         return button;
+    }
+
+    private void tintCheckBox(CheckBox checkBox) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            checkBox.setButtonTintList(controlTint(0xFFC9CDD2));
+        }
+    }
+
+    private void tintSwitch(Switch switchView) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            int[][] states = {
+                    new int[]{android.R.attr.state_checked},
+                    new int[]{}
+            };
+            switchView.setThumbTintList(new ColorStateList(states, new int[]{COLOR_ACCENT, 0xFFFFFFFF}));
+            switchView.setTrackTintList(new ColorStateList(states, new int[]{0x665F8F73, 0xFFE5E8EB}));
+        }
+    }
+
+    private void tintSeekBar(SeekBar seekBar) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            seekBar.setThumbTintList(ColorStateList.valueOf(COLOR_ACCENT));
+            seekBar.setProgressTintList(ColorStateList.valueOf(COLOR_ACCENT));
+            seekBar.setProgressBackgroundTintList(ColorStateList.valueOf(0xFFE1E5E8));
+        }
+    }
+
+    private ColorStateList controlTint(int uncheckedColor) {
+        int[][] states = {
+                new int[]{android.R.attr.state_checked},
+                new int[]{}
+        };
+        return new ColorStateList(states, new int[]{COLOR_ACCENT, uncheckedColor});
     }
 
     private Button baseButton(String label) {
@@ -1484,13 +2458,95 @@ public class MainActivity extends Activity {
         return drawable;
     }
 
+    private GradientDrawable topRounded(int color, int radiusDp) {
+        GradientDrawable drawable = new GradientDrawable();
+        drawable.setColor(color);
+        float radius = dp(radiusDp);
+        drawable.setCornerRadii(new float[]{radius, radius, radius, radius, 0, 0, 0, 0});
+        return drawable;
+    }
+
     private GradientDrawable roundedStroke(int fillColor, int strokeColor, int radiusDp) {
         GradientDrawable drawable = rounded(fillColor, radiusDp);
         drawable.setStroke(dp(1), strokeColor);
         return drawable;
     }
 
+    private final class CircleIconButtonView extends View {
+        static final int ICON_PREVIEW = 1;
+        static final int ICON_SETTINGS = 2;
+        static final int ICON_BACK = 3;
+        static final int ICON_CLOSE = 4;
+
+        private final int icon;
+        private final Paint iconPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final Paint iconFillPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final Path path = new Path();
+        private final RectF rect = new RectF();
+
+        CircleIconButtonView(Context context, int icon) {
+            super(context);
+            this.icon = icon;
+            setClickable(true);
+            setFocusable(true);
+            setBackground(rounded(icon == ICON_BACK || icon == ICON_CLOSE ? COLOR_FIELD : COLOR_PANEL, 99));
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                setClipToOutline(true);
+                setElevation(icon == ICON_BACK || icon == ICON_CLOSE ? 0f : dp(1));
+            }
+            iconPaint.setColor(0xFF6B7684);
+            iconPaint.setStrokeWidth(icon == ICON_BACK || icon == ICON_CLOSE ? dp(2) : dp(1.6f));
+            iconPaint.setStrokeCap(Paint.Cap.ROUND);
+            iconPaint.setStrokeJoin(Paint.Join.ROUND);
+            iconPaint.setStyle(Paint.Style.STROKE);
+            iconFillPaint.setColor(0xFF6B7684);
+            iconFillPaint.setStyle(Paint.Style.FILL);
+        }
+
+        @Override
+        protected void onDraw(Canvas canvas) {
+            super.onDraw(canvas);
+            float w = getWidth();
+            float h = getHeight();
+            float cx = w / 2f;
+            float cy = h / 2f;
+            if (icon == ICON_PREVIEW) {
+                path.reset();
+                path.moveTo(w * 0.24f, cy);
+                path.cubicTo(w * 0.34f, h * 0.34f, w * 0.66f, h * 0.34f, w * 0.76f, cy);
+                path.cubicTo(w * 0.66f, h * 0.66f, w * 0.34f, h * 0.66f, w * 0.24f, cy);
+                canvas.drawPath(path, iconPaint);
+                canvas.drawCircle(cx, cy, Math.min(w, h) * 0.105f, iconPaint);
+            } else if (icon == ICON_SETTINGS) {
+                float size = Math.min(w, h);
+                iconFillPaint.setColor(0xFF6B7684);
+                iconPaint.setStrokeWidth(dp(1.9f));
+                float left = w * 0.29f;
+                float right = w * 0.71f;
+                float topY = h * 0.36f;
+                float midY = h * 0.50f;
+                float bottomY = h * 0.64f;
+                canvas.drawLine(left, topY, right, topY, iconPaint);
+                canvas.drawLine(left, midY, right, midY, iconPaint);
+                canvas.drawLine(left, bottomY, right, bottomY, iconPaint);
+                canvas.drawCircle(w * 0.43f, topY, size * 0.045f, iconFillPaint);
+                canvas.drawCircle(w * 0.58f, midY, size * 0.045f, iconFillPaint);
+                canvas.drawCircle(w * 0.48f, bottomY, size * 0.045f, iconFillPaint);
+            } else if (icon == ICON_BACK) {
+                canvas.drawLine(w * 0.58f, h * 0.30f, w * 0.40f, cy, iconPaint);
+                canvas.drawLine(w * 0.40f, cy, w * 0.58f, h * 0.70f, iconPaint);
+            } else if (icon == ICON_CLOSE) {
+                canvas.drawLine(w * 0.36f, h * 0.36f, w * 0.64f, h * 0.64f, iconPaint);
+                canvas.drawLine(w * 0.64f, h * 0.36f, w * 0.36f, h * 0.64f, iconPaint);
+            }
+        }
+    }
+
     private int dp(int value) {
         return (int) (value * getResources().getDisplayMetrics().density + 0.5f);
+    }
+
+    private float dp(float value) {
+        return value * getResources().getDisplayMetrics().density;
     }
 }

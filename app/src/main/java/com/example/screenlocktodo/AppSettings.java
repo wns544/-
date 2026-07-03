@@ -12,10 +12,12 @@ final class AppSettings {
     private static final String KEY_LOCK_RECOVERY_VERSION = "lock_screen_recovery_version";
     private static final String KEY_OVERLAY_OPACITY = "overlay_opacity";
     private static final String KEY_CURTAIN_UNLOCK_BOTH_DIRECTIONS = "curtain_unlock_both_directions";
+    private static final String KEY_TODO_SWIPE_BOTH_DIRECTIONS_DELETE = "todo_swipe_both_directions_delete";
     private static final String KEY_DOUBLE_TAP_SCREEN_OFF_ENABLED = "double_tap_screen_off_enabled";
     private static final String KEY_TODOS_LOCKED = "todos_locked";
     private static final String KEY_BATTERY_GUIDE_SHOWN = "battery_guide_shown";
     private static final String KEY_LANGUAGE_TAG = "language_tag";
+    private static final String KEY_SPEECH_LANGUAGE_TAG = "speech_language_tag";
     private static final String KEY_LOCK_BACKGROUND_IMAGE_URI = "lock_background_image_uri";
     private static final int DEFAULT_OVERLAY_OPACITY = 40;
 
@@ -62,6 +64,14 @@ final class AppSettings {
         prefs(context).edit().putBoolean(KEY_CURTAIN_UNLOCK_BOTH_DIRECTIONS, value).apply();
     }
 
+    static boolean todoSwipeBothDirectionsDelete(Context context) {
+        return prefs(context).getBoolean(KEY_TODO_SWIPE_BOTH_DIRECTIONS_DELETE, false);
+    }
+
+    static void setTodoSwipeBothDirectionsDelete(Context context, boolean value) {
+        prefs(context).edit().putBoolean(KEY_TODO_SWIPE_BOTH_DIRECTIONS_DELETE, value).apply();
+    }
+
     static boolean doubleTapScreenOffEnabled(Context context) {
         return prefs(context).getBoolean(KEY_DOUBLE_TAP_SCREEN_OFF_ENABLED, true);
     }
@@ -92,6 +102,14 @@ final class AppSettings {
 
     static void setLanguageTag(Context context, String value) {
         prefs(context).edit().putString(KEY_LANGUAGE_TAG, value == null ? "" : value).apply();
+    }
+
+    static String speechLanguageTag(Context context) {
+        return prefs(context).getString(KEY_SPEECH_LANGUAGE_TAG, "");
+    }
+
+    static void setSpeechLanguageTag(Context context, String value) {
+        prefs(context).edit().putString(KEY_SPEECH_LANGUAGE_TAG, value == null ? "" : value).apply();
     }
 
     static String lockBackgroundImageUri(Context context) {

@@ -12,6 +12,7 @@ import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.content.pm.ActivityInfo;
 import android.graphics.Canvas;
 import android.graphics.Paint;
 import android.graphics.Path;
@@ -28,6 +29,7 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.SystemClock;
+import android.text.InputType;
 import android.view.Gravity;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
@@ -43,6 +45,13 @@ import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
+import android.widget.Toast;
+import android.Manifest;
+import android.content.pm.PackageManager;
+import android.speech.RecognitionListener;
+import android.speech.RecognizerIntent;
+import android.speech.SpeechRecognizer;
+import java.util.ArrayList;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -100,6 +109,12 @@ public class LockActivity extends Activity {
     private String lastBackgroundKey = "";
     private ValueAnimator inputBlockHeightAnimator;
     private final Handler uiHandler = new Handler(Looper.getMainLooper());
+    
+    private SpeechRecognizer speechRecognizer;
+    private ImageView micButton;
+    private boolean isListening = false;
+    private int speechInsertStart = -1;
+    private static final int REQUEST_RECORD_AUDIO_PERMISSION = 200;
     private final BroadcastReceiver clockReceiver = new BroadcastReceiver() {
         @Override
         public void onReceive(Context context, Intent intent) {
@@ -114,6 +129,7 @@ public class LockActivity extends Activity {
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
+        setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_PORTRAIT);
         showing = true;
         configureLockWindow();
         super.onCreate(savedInstanceState);
@@ -186,6 +202,9 @@ public class LockActivity extends Activity {
     protected void onPause() {
         DiagnosticLog.record(this, "NudgeLockActivity", "onPause");
         visible = false;
+        if (isListening) {
+            stopSpeechRecognition();
+        }
         unregisterClockReceiver();
         super.onPause();
     }
@@ -201,7 +220,196 @@ public class LockActivity extends Activity {
         DiagnosticLog.record(this, "NudgeLockActivity", "onDestroy");
         showing = false;
         unregisterClockReceiver();
+        uiHandler.removeCallbacksAndMessages(null);
+        if (inputBlockHeightAnimator != null) {
+            inputBlockHeightAnimator.cancel();
+            inputBlockHeightAnimator = null;
+        }
+        if (speechRecognizer != null) {
+            speechRecognizer.destroy();
+            speechRecognizer = null;
+        }
         super.onDestroy();
+    }
+
+    private void toggleSpeechRecognition() {
+        if (isListening) {
+            stopSpeechRecognition();
+        } else {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+                    requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO}, REQUEST_RECORD_AUDIO_PERMISSION);
+                    return;
+                }
+            }
+            startSpeechRecognition();
+        }
+    }
+
+    private void startSpeechRecognition() {
+        if (!SpeechRecognizer.isRecognitionAvailable(this)) {
+            Toast.makeText(this, "이 기기에서 음성 인식을 사용할 수 없습니다.", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        if (speechRecognizer == null) {
+            speechRecognizer = SpeechRecognizer.createSpeechRecognizer(this);
+            speechRecognizer.setRecognitionListener(new RecognitionListener() {
+                @Override
+                public void onReadyForSpeech(Bundle params) {
+                    isListening = true;
+                    speechInsertStart = input == null ? -1 : input.getSelectionStart();
+                    updateMicListening(true);
+                    Toast.makeText(LockActivity.this, "말하면 할 일에 입력됩니다.", Toast.LENGTH_SHORT).show();
+                }
+                @Override
+                public void onBeginningOfSpeech() {
+                    isListening = true;
+                    updateMicListening(true);
+                }
+                @Override
+                public void onRmsChanged(float rmsdB) {}
+                @Override
+                public void onBufferReceived(byte[] buffer) {}
+                @Override
+                public void onEndOfSpeech() {
+                    updateMicListening(false);
+                }
+                @Override
+                public void onError(int error) {
+                    isListening = false;
+                    speechInsertStart = -1;
+                    updateMicListening(false);
+                    Toast.makeText(LockActivity.this, "음성 입력 실패: " + speechErrorMessage(error), Toast.LENGTH_SHORT).show();
+                }
+                @Override
+                public void onResults(Bundle results) {
+                    isListening = false;
+                    updateMicListening(false);
+                    ArrayList<String> matches = results.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
+                    if (matches != null && !matches.isEmpty()) {
+                        insertSpeechText(matches.get(0), true);
+                    }
+                    speechInsertStart = -1;
+                }
+                @Override
+                public void onPartialResults(Bundle partialResults) {
+                    ArrayList<String> matches = partialResults.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
+                    if (matches != null && !matches.isEmpty()) {
+                        insertSpeechText(matches.get(0), false);
+                    }
+                }
+                @Override
+                public void onEvent(int eventType, Bundle params) {}
+            });
+        }
+        
+        Intent intent = new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH);
+        intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
+        intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, speechLanguageTag());
+        intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, speechLanguageTag());
+        intent.putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true);
+        intent.putExtra(RecognizerIntent.EXTRA_PROMPT, "할 일을 말하세요");
+        try {
+            if (input != null) {
+                input.requestFocus();
+            }
+            speechRecognizer.startListening(intent);
+        } catch (Exception e) {
+            DiagnosticLog.record(this, "NudgeLockActivity", "speech recognizer start failed", e);
+            Toast.makeText(this, "음성 인식을 시작할 수 없습니다.", Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    private String speechLanguageTag() {
+        String speechLanguage = AppSettings.speechLanguageTag(this);
+        if (speechLanguage != null && speechLanguage.trim().length() > 0) {
+            return speechLanguage;
+        }
+        String appLanguage = AppSettings.languageTag(this);
+        if (appLanguage != null) {
+            if (appLanguage.startsWith("en")) {
+                return "en-US";
+            }
+            if (appLanguage.startsWith("zh")) {
+                return "zh-TW";
+            }
+        }
+        return "ko-KR";
+    }
+
+    private void stopSpeechRecognition() {
+        if (speechRecognizer != null) {
+            speechRecognizer.stopListening();
+        }
+        isListening = false;
+        speechInsertStart = -1;
+        updateMicListening(false);
+    }
+
+    private void updateMicListening(boolean listening) {
+        if (micButton == null) {
+            return;
+        }
+        micButton.setAlpha(listening ? 1.0f : 0.6f);
+        if (listening) {
+            micButton.setColorFilter(0xFF5F8F73);
+        } else {
+            micButton.clearColorFilter();
+        }
+    }
+
+    private void insertSpeechText(String text, boolean finalResult) {
+        if (input == null || text == null) {
+            return;
+        }
+        String spokenText = text.trim();
+        if (spokenText.isEmpty()) {
+            return;
+        }
+        int start = speechInsertStart >= 0 ? speechInsertStart : input.getText().length();
+        start = Math.max(0, Math.min(start, input.getText().length()));
+        input.getText().replace(start, input.getText().length(), spokenText);
+        input.setSelection(input.getText().length());
+        if (finalResult) {
+            speechInsertStart = -1;
+        }
+    }
+
+    private String speechErrorMessage(int error) {
+        switch (error) {
+            case SpeechRecognizer.ERROR_AUDIO:
+                return "마이크 오디오 오류";
+            case SpeechRecognizer.ERROR_CLIENT:
+                return "음성 인식 클라이언트 오류";
+            case SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS:
+                return "마이크 권한이 필요합니다";
+            case SpeechRecognizer.ERROR_NETWORK:
+                return "네트워크 오류";
+            case SpeechRecognizer.ERROR_NETWORK_TIMEOUT:
+                return "네트워크 시간 초과";
+            case SpeechRecognizer.ERROR_NO_MATCH:
+                return "인식된 말이 없습니다";
+            case SpeechRecognizer.ERROR_RECOGNIZER_BUSY:
+                return "음성 인식기가 사용 중입니다";
+            case SpeechRecognizer.ERROR_SERVER:
+                return "음성 인식 서버 오류";
+            case SpeechRecognizer.ERROR_SPEECH_TIMEOUT:
+                return "말소리가 감지되지 않았습니다";
+            default:
+                return "알 수 없는 오류 " + error;
+        }
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode == REQUEST_RECORD_AUDIO_PERMISSION) {
+            if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                startSpeechRecognition();
+            } else {
+                Toast.makeText(this, "잠금화면 음성 입력에는 마이크 권한이 필요합니다.", Toast.LENGTH_SHORT).show();
+            }
+        }
     }
 
     static boolean isShowing() {
@@ -499,11 +707,9 @@ public class LockActivity extends Activity {
                 dp(46)
         ));
 
-        View inputLeftSpacer = new View(this);
-        inputRow.addView(inputLeftSpacer, new LinearLayout.LayoutParams(dp(44), dp(46)));
-
         input = new EditText(this);
         input.setSingleLine(true);
+        input.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_CAP_SENTENCES);
         input.setHint(getString(R.string.new_todo_hint));
         input.setGravity(Gravity.CENTER);
         input.setTextColor(0xFFFFFFFF);
@@ -522,6 +728,13 @@ public class LockActivity extends Activity {
             return false;
         });
         inputRow.addView(input, new LinearLayout.LayoutParams(0, dp(46), 1));
+
+        micButton = new ImageView(this);
+        micButton.setImageResource(R.drawable.ic_mic);
+        micButton.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
+        micButton.setAlpha(0.6f);
+        micButton.setOnClickListener(v -> toggleSpeechRecognition());
+        inputRow.addView(micButton, new LinearLayout.LayoutParams(dp(44), dp(46)));
 
         inputSubmitButton = new CheckSubmitButtonView(this);
         inputSubmitButton.setOnClickListener(v -> addTodo());
@@ -1453,12 +1666,13 @@ public class LockActivity extends Activity {
             paint.setStyle(Paint.Style.STROKE);
             paint.setStrokeWidth(dp(2));
             paint.setColor(0xDFFFFFFF);
-            float startX = centerX - dp(7);
-            float startY = centerY;
-            float midX = centerX - dp(2);
+            float visualOffsetX = -dp(1.5f);
+            float startX = centerX + visualOffsetX - dp(6);
+            float startY = centerY + dp(1);
+            float midX = centerX + visualOffsetX - dp(1);
             float midY = centerY + dp(5);
-            float endX = centerX + dp(8);
-            float endY = centerY - dp(6);
+            float endX = centerX + visualOffsetX + dp(7);
+            float endY = centerY - dp(5);
             canvas.drawLine(startX, startY, midX, midY, paint);
             canvas.drawLine(midX, midY, endX, endY, paint);
         }
@@ -1551,6 +1765,7 @@ public class LockActivity extends Activity {
 
     private void closeLockTask() {
         DiagnosticLog.record(this, "NudgeLockActivity", "close lock task");
+        sendBroadcast(new Intent(LockMonitorService.ACTION_LOCK_DISMISSED_BY_USER).setPackage(getPackageName()));
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
             finishAndRemoveTask();
         } else {
@@ -1856,6 +2071,7 @@ public class LockActivity extends Activity {
         private float downY;
         private boolean swiping;
         private boolean longPressTriggered;
+        private boolean parentInterceptReleased;
         private Runnable longPressRunnable;
 
         SwipeActionListener(TodoItem item, int index, View rowView, TextView actionHint) {
@@ -1873,6 +2089,8 @@ public class LockActivity extends Activity {
                     downY = event.getRawY();
                     swiping = false;
                     longPressTriggered = false;
+                    parentInterceptReleased = false;
+                    view.getParent().requestDisallowInterceptTouchEvent(true);
                     rowView.animate().cancel();
                     rowView.setScaleX(1f);
                     rowView.setScaleY(1f);
@@ -1888,6 +2106,18 @@ public class LockActivity extends Activity {
                 case MotionEvent.ACTION_MOVE:
                     float moveDx = event.getRawX() - downX;
                     float moveDy = event.getRawY() - downY;
+                    if (!swiping
+                            && !longPressTriggered
+                            && Math.abs(moveDy) > dp(14)
+                            && Math.abs(moveDy) > Math.abs(moveDx) * 1.25f) {
+                        cancelLongPress();
+                        parentInterceptReleased = true;
+                        view.getParent().requestDisallowInterceptTouchEvent(false);
+                        return false;
+                    }
+                    if (parentInterceptReleased) {
+                        return false;
+                    }
                     if (Math.abs(moveDx) > dp(8) || Math.abs(moveDy) > dp(8)) {
                         cancelLongPress();
                     }
@@ -1901,10 +2131,14 @@ public class LockActivity extends Activity {
                     if (swiping) {
                         rowView.setTranslationX(moveDx * 0.82f);
                         rowView.setAlpha(1f);
-                        if (item.done) {
+                        if (AppSettings.todoSwipeBothDirectionsDelete(LockActivity.this)) {
+                            actionHint.setText(getString(R.string.delete));
+                            actionHint.setTextColor(0xFFFFB3A8);
+                            rowView.setBackgroundColor(0x22C24132);
+                        } else if (item.done) {
                             actionHint.setText("\uD574\uC81C");
-                            actionHint.setTextColor(0xCCD7E7FF);
-                            rowView.setBackgroundColor(0x182D6CDF);
+                            actionHint.setTextColor(0xCCBFE7CC);
+                            rowView.setBackgroundColor(0x185F8F73);
                         } else if (moveDx < 0) {
                             actionHint.setText(getString(R.string.todo_done_action));
                             actionHint.setTextColor(0xCC9BE7C2);
@@ -1917,6 +2151,7 @@ public class LockActivity extends Activity {
                     }
                     return true;
                 case MotionEvent.ACTION_UP:
+                    view.getParent().requestDisallowInterceptTouchEvent(false);
                     cancelLongPress();
                     if (longPressTriggered) {
                         finishTodoDrag(item);
@@ -1942,9 +2177,13 @@ public class LockActivity extends Activity {
                         }
                         return true;
                     }
-                    if (item.done) {
+                    if (AppSettings.todoSwipeBothDirectionsDelete(LockActivity.this)) {
+                        actionHint.setText(getString(R.string.delete));
+                        actionHint.setTextColor(0xFFFFB3A8);
+                        animateDeleteTodo(item, index, rowView);
+                    } else if (item.done) {
                         actionHint.setText("\uD574\uC81C");
-                        actionHint.setTextColor(0xCCD7E7FF);
+                        actionHint.setTextColor(0xCCBFE7CC);
                         animateThen(rowView, dx < 0 ? -rowView.getWidth() : rowView.getWidth(), () -> {
                             TodoStore.setDone(LockActivity.this, item.id, false);
                             refreshTodos();
@@ -1963,6 +2202,7 @@ public class LockActivity extends Activity {
                     }
                     return true;
                 case MotionEvent.ACTION_CANCEL:
+                    view.getParent().requestDisallowInterceptTouchEvent(false);
                     cancelLongPress();
                     if (longPressTriggered) {
                         cancelTodoDrag();

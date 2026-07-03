@@ -1,0 +1,55 @@
+{
+  "project_info": {
+    "project_number": "899868622322",
+    "project_id": "nudgescreen-todo",
+    "storage_bucket": "nudgescreen-todo.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:899868622322:android:f37d01d75c2a6c59347f6b",
+        "android_client_info": {
+          "package_name": "com.wns544.nudgescreen"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "899868622322-nd7g164sjiv67b6bptkssr0bmib6078h.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.wns544.nudgescreen",
+            "certificate_hash": "af70dc7fb56161cd77be28914373cb32beeb2928"
+          }
+        },
+        {
+          "client_id": "899868622322-udgqtl583db12vulrh9uh53c9ipc1qla.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.wns544.nudgescreen",
+            "certificate_hash": "22b910010c05872d79be12bd1fb69ec477ab9dc9"
+          }
+        },
+        {
+          "client_id": "899868622322-c1mfbri8od4ij6rqv6148aet15klh80j.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBGrMX0sPTaYCU6PAOGEhw4qyGlLPFGQx0"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "899868622322-c1mfbri8od4ij6rqv6148aet15klh80j.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

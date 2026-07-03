@@ -10,7 +10,9 @@
     <string name="lock_screen_enabled_desc">開啟螢幕時會顯示待辦簾幕。</string>
     <string name="overlay_opacity">背景暗度</string>
     <string name="unlock_both_directions">可向任一方向滑動解鎖</string>
+    <string name="swipe_both_directions_delete">左右滑動待辦事項皆為刪除</string>
     <string name="section_todos">待辦事項</string>
+    <string name="todo_gesture_hint">輕觸文字兩下即可編輯 · 長按拖曳可調整順序</string>
     <string name="todo_input_hint">要顯示在鎖定畫面的待辦事項</string>
     <string name="add">新增</string>
     <string name="settings">設定</string>
@@ -60,4 +62,17 @@
     <string name="full_screen_alert_action">允許全螢幕提醒</string>
     <string name="full_screen_alert_title">請開啟全螢幕提醒</string>
     <string name="full_screen_alert_body">若要在鎖定畫面上顯示待辦簾幕，需要允許全螢幕提醒。\n\n開啟「設定」→「應用程式」→「特殊存取」→「全螢幕提醒」→「Nudge Screen」，然後開啟允許。</string>
+    <string name="google_sign_in">使用 Google 帳戶同步</string>
+    <string name="google_account">Google 帳戶</string>
+    <string name="google_sign_out">登出</string>
+    <string name="google_sign_out_title">要登出 Google 帳戶嗎？</string>
+    <string name="google_signed_in">已登入 Google 帳戶。</string>
+    <string name="google_signed_out">已登出。記事仍保留在此裝置。</string>
+    <string name="google_sign_in_failed">Google 登入失敗。</string>
+    <string name="cloud_syncing">同步中</string>
+    <string name="cloud_synced">已同步</string>
+    <string name="cloud_offline">離線</string>
+    <string name="cloud_server_summary">伺服器 %1$d 筆 · %2$s</string>
+    <string name="firebase_setup_required_title">需要設定 Firebase</string>
+    <string name="firebase_setup_required_body">請在 Firebase Console 註冊 Android 應用程式 (com.wns544.nudgescreen)，加入 app/google-services.json，並啟用 Google 登入。</string>
 </resources>
