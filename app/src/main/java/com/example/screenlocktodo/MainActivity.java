@@ -562,6 +562,21 @@ public class MainActivity extends Activity {
         Toast.makeText(this, "잠금메모를 복사했습니다.", Toast.LENGTH_SHORT).show();
     }
 
+    private void copyTodoToClipboard(TodoItem item) {
+        String text = item == null || item.text == null ? "" : item.text.trim();
+        if (text.length() == 0) {
+            Toast.makeText(this, "\uBCF5\uC0AC\uD560 \uD560 \uC77C\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        ClipboardManager clipboard = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+        if (clipboard == null) {
+            Toast.makeText(this, "\uD074\uB9BD\uBCF4\uB4DC\uB97C \uC0AC\uC6A9\uD560 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        clipboard.setPrimaryClip(ClipData.newPlainText("\uC7A0\uAE08\uBA54\uBAA8", text));
+        Toast.makeText(this, "\uD560 \uC77C\uC744 \uBCF5\uC0AC\uD588\uC2B5\uB2C8\uB2E4.", Toast.LENGTH_SHORT).show();
+    }
+
     private View drawerLayer() {
         FrameLayout layer = new FrameLayout(this);
         layer.setClipChildren(false);
@@ -1402,9 +1417,16 @@ public class MainActivity extends Activity {
         row.setTag(item.id);
 
         TextView label = text(item.text, 16, COLOR_INK, false);
+        label.setPadding(0, 0, dp(6), 0);
         label.setOnClickListener(v -> handleMainTodoTap(item));
         label.setOnLongClickListener(v -> startMainTodoDrag(row, item));
         row.addView(label, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
+
+        CopyTodoButtonView copy = new CopyTodoButtonView(this);
+        copy.setOnClickListener(v -> copyTodoToClipboard(item));
+        LinearLayout.LayoutParams copyParams = new LinearLayout.LayoutParams(dp(40), dp(42));
+        copyParams.rightMargin = dp(2);
+        row.addView(copy, copyParams);
 
         Button delete = quietButton(getString(R.string.delete), COLOR_DANGER);
         delete.setOnClickListener(v -> {

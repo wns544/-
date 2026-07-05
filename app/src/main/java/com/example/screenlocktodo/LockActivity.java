@@ -664,7 +664,7 @@ public class LockActivity extends Activity {
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setGravity(Gravity.CENTER_HORIZONTAL);
-        root.setPadding(dp(18), dp(72), dp(18), dp(32));
+        root.setPadding(dp(18), dp(34), dp(18), dp(32));
         scroll.addView(root, new ScrollView.LayoutParams(
                 ScrollView.LayoutParams.MATCH_PARENT,
                 ScrollView.LayoutParams.WRAP_CONTENT
@@ -719,7 +719,7 @@ public class LockActivity extends Activity {
         plusTouchRow.addView(micButton, plusMicParams);
         root.addView(plusTouchRow, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
-                dp(82)
+                dp(70)
         ));
 
         inputBlock = new LinearLayout(this);
@@ -788,7 +788,7 @@ public class LockActivity extends Activity {
         topTodoDivider = text("\u2013", 16, 0x66FFFFFF, false);
         topTodoDivider.setGravity(Gravity.CENTER);
         topTodoDivider.setVisibility(View.GONE);
-        root.addView(topTodoDivider, compactDividerParams());
+        root.addView(topTodoDivider, topTodoDividerParams());
 
         editUndoBanner = text("", 14, 0xEFFFFFFF, true);
         editUndoBanner.setGravity(Gravity.CENTER);
@@ -804,7 +804,7 @@ public class LockActivity extends Activity {
         todoList = new LinearLayout(this);
         todoList.setOrientation(LinearLayout.VERTICAL);
         todoList.setGravity(Gravity.CENTER_HORIZONTAL);
-        todoList.setPadding(0, dp(11), 0, dp(18));
+        todoList.setPadding(0, 0, 0, dp(18));
         root.addView(todoList, narrowParams());
 
         curtainContent.addView(menuButton, menuParams);
@@ -2018,6 +2018,13 @@ public class LockActivity extends Activity {
         return new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 dp(20)
+        );
+    }
+
+    private LinearLayout.LayoutParams topTodoDividerParams() {
+        return new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                dp(8)
         );
     }
 
