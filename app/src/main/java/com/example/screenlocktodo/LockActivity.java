@@ -73,7 +73,9 @@ public class LockActivity extends Activity {
     private LinearLayout todoList;
     private LinearLayout inputBlock;
     private LinearLayout inputRow;
+    private TextView editModeLabel;
     private TextView inputDivider;
+    private TextView editUndoBanner;
     private TextView topTodoDivider;
     private EditText input;
     private CheckSubmitButtonView inputSubmitButton;
@@ -106,6 +108,9 @@ public class LockActivity extends Activity {
     private boolean keyboardVisible;
     private String pendingInputDraft = "";
     private long pendingInputDraftSavedAt;
+    private long editingTodoId = -1L;
+    private String editingOriginalText = "";
+    private EditedTodo lastEditedTodo;
     private String lastBackgroundKey = "";
     private ValueAnimator inputBlockHeightAnimator;
     private final Handler uiHandler = new Handler(Looper.getMainLooper());
@@ -164,7 +169,15 @@ public class LockActivity extends Activity {
                 }
                 return;
             }
-            saveInputDraft();
+            if (isEditingTodo()) {
+                clearEditingTodo();
+                if (input != null) {
+                    input.setText("");
+                }
+                refreshTodos();
+            } else {
+                saveInputDraft();
+            }
             hideInput(false);
         }
         // The curtain itself is dismissed only by the unlock swipe, not by system back.
@@ -308,6 +321,9 @@ public class LockActivity extends Activity {
         intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, speechLanguageTag());
         intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, speechLanguageTag());
         intent.putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true);
+        intent.putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 8000L);
+        intent.putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 8000L);
+        intent.putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_MINIMUM_LENGTH_MILLIS, 30000L);
         intent.putExtra(RecognizerIntent.EXTRA_PROMPT, "할 일을 말하세요");
         try {
             if (input != null) {
@@ -685,6 +701,22 @@ public class LockActivity extends Activity {
                 Gravity.CENTER
         );
         plusTouchRow.addView(plusButton, plusButtonParams);
+
+        micButton = new ImageView(this);
+        micButton.setImageResource(R.drawable.ic_mic);
+        micButton.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
+        micButton.setAlpha(0f);
+        micButton.setVisibility(View.GONE);
+        micButton.setTranslationX(0f);
+        micButton.setScaleX(0.9f);
+        micButton.setScaleY(0.9f);
+        micButton.setOnClickListener(v -> toggleSpeechRecognition());
+        FrameLayout.LayoutParams plusMicParams = new FrameLayout.LayoutParams(
+                dp(44),
+                dp(44),
+                Gravity.CENTER
+        );
+        plusTouchRow.addView(micButton, plusMicParams);
         root.addView(plusTouchRow, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 dp(82)
@@ -695,50 +727,59 @@ public class LockActivity extends Activity {
         inputBlock.setVisibility(View.GONE);
         inputBlock.setAlpha(0f);
         inputBlock.setTranslationY(-dp(8));
-        LinearLayout.LayoutParams inputBlockParams = narrowParams();
+        LinearLayout.LayoutParams inputBlockParams = fullWidthWrap();
         inputBlockParams.height = 0;
         root.addView(inputBlock, inputBlockParams);
 
         inputRow = new LinearLayout(this);
         inputRow.setOrientation(LinearLayout.HORIZONTAL);
         inputRow.setGravity(Gravity.CENTER_VERTICAL);
-        inputBlock.addView(inputRow, new LinearLayout.LayoutParams(
+
+        editModeLabel = text("", 13, 0xCCFFFFFF, true);
+        editModeLabel.setGravity(Gravity.CENTER);
+        editModeLabel.setSingleLine(true);
+        editModeLabel.setVisibility(View.GONE);
+        inputBlock.addView(editModeLabel, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
-                dp(46)
+                dp(24)
         ));
 
+        inputBlock.addView(inputRow, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                dp(72)
+        ));
+
+        View inputLeftSpacer = new View(this);
+        inputRow.addView(inputLeftSpacer, new LinearLayout.LayoutParams(dp(44), dp(72)));
+
         input = new EditText(this);
-        input.setSingleLine(true);
-        input.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_CAP_SENTENCES);
+        input.setSingleLine(false);
+        input.setMinLines(1);
+        input.setMaxLines(3);
+        input.setHorizontallyScrolling(false);
+        input.setInputType(InputType.TYPE_CLASS_TEXT
+                | InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
+                | InputType.TYPE_TEXT_FLAG_MULTI_LINE);
         input.setHint(getString(R.string.new_todo_hint));
         input.setGravity(Gravity.CENTER);
         input.setTextColor(0xFFFFFFFF);
         input.setHintTextColor(0x99FFFFFF);
         input.setTextSize(16);
-        input.setImeOptions(EditorInfo.IME_ACTION_DONE);
+        input.setImeOptions(EditorInfo.IME_FLAG_NO_ENTER_ACTION);
         input.setBackgroundColor(0x00000000);
+        input.setPadding(dp(12), 0, dp(12), 0);
         input.setOnEditorActionListener((view, actionId, event) -> {
-            boolean enterPressed = event != null
-                    && event.getAction() == KeyEvent.ACTION_DOWN
-                    && event.getKeyCode() == KeyEvent.KEYCODE_ENTER;
-            if (actionId == EditorInfo.IME_ACTION_DONE || enterPressed) {
-                addTodo();
+            if (actionId == EditorInfo.IME_ACTION_DONE) {
+                submitInputTodo();
                 return true;
             }
             return false;
         });
-        inputRow.addView(input, new LinearLayout.LayoutParams(0, dp(46), 1));
-
-        micButton = new ImageView(this);
-        micButton.setImageResource(R.drawable.ic_mic);
-        micButton.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
-        micButton.setAlpha(0.6f);
-        micButton.setOnClickListener(v -> toggleSpeechRecognition());
-        inputRow.addView(micButton, new LinearLayout.LayoutParams(dp(44), dp(46)));
+        inputRow.addView(input, new LinearLayout.LayoutParams(0, dp(72), 1));
 
         inputSubmitButton = new CheckSubmitButtonView(this);
-        inputSubmitButton.setOnClickListener(v -> addTodo());
-        inputRow.addView(inputSubmitButton, new LinearLayout.LayoutParams(dp(44), dp(46)));
+        inputSubmitButton.setOnClickListener(v -> submitInputTodo());
+        inputRow.addView(inputSubmitButton, new LinearLayout.LayoutParams(dp(44), dp(72)));
 
         inputDivider = text("\u2013", 16, 0x66FFFFFF, false);
         inputDivider.setGravity(Gravity.CENTER);
@@ -748,6 +789,17 @@ public class LockActivity extends Activity {
         topTodoDivider.setGravity(Gravity.CENTER);
         topTodoDivider.setVisibility(View.GONE);
         root.addView(topTodoDivider, compactDividerParams());
+
+        editUndoBanner = text("", 14, 0xEFFFFFFF, true);
+        editUndoBanner.setGravity(Gravity.CENTER);
+        editUndoBanner.setSingleLine(true);
+        editUndoBanner.setVisibility(View.GONE);
+        editUndoBanner.setBackground(rounded(0x225F8F73, dp(12)));
+        editUndoBanner.setOnClickListener(v -> undoLastEdit());
+        LinearLayout.LayoutParams editUndoParams = narrowParams();
+        editUndoParams.height = dp(32);
+        editUndoParams.topMargin = dp(4);
+        root.addView(editUndoBanner, editUndoParams);
 
         todoList = new LinearLayout(this);
         todoList.setOrientation(LinearLayout.VERTICAL);
@@ -830,6 +882,14 @@ public class LockActivity extends Activity {
         }
     }
 
+    private void submitInputTodo() {
+        if (isEditingTodo()) {
+            saveEditedTodo();
+            return;
+        }
+        addTodo();
+    }
+
     private void addTodo() {
         if (input.getText().toString().trim().length() == 0) {
             clearInputDraft();
@@ -850,7 +910,7 @@ public class LockActivity extends Activity {
         }
 
         List<TodoItem> items = TodoStore.load(this);
-        String renderKey = TodoCodec.encode(items) + "|" + todosLocked;
+        String renderKey = TodoCodec.encode(items) + "|" + todosLocked + "|" + editingTodoId;
         updateTopTodoDividerVisibility(!items.isEmpty() && inputBlock.getVisibility() != View.VISIBLE);
         if (renderKey.equals(lastRenderedTodoKey) && todoList.getChildCount() > 0) {
             return;
@@ -903,14 +963,17 @@ public class LockActivity extends Activity {
         row.setGravity(Gravity.CENTER);
         row.setPadding(0, 0, 0, 0);
         row.setTag(item.id);
+        if (item.id == editingTodoId) {
+            row.setBackground(rounded(0x185F8F73, dp(14)));
+        }
 
         row.addView(text("", 1, 0x00FFFFFF, false), new LinearLayout.LayoutParams(dp(58), dp(38)));
 
-        TextView label = text(item.text, 16, item.done ? 0x99FFFFFF : 0xFFFFFFFF, false);
+        TextView label = text(item.text, 16, 0xFFFFFFFF, false);
         label.setGravity(Gravity.CENTER);
         row.addView(label, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
 
-        TextView hint = text(item.done ? "\u2713" : "", 14, item.done ? 0x99FFFFFF : 0x00FFFFFF, false);
+        TextView hint = text("", 14, 0x00FFFFFF, false);
         hint.setGravity(Gravity.CENTER);
         row.addView(hint, new LinearLayout.LayoutParams(dp(58), dp(38)));
 
@@ -1179,17 +1242,11 @@ public class LockActivity extends Activity {
     }
 
     private void handleTodoTap(TodoItem item) {
-        if (item.done) {
-            TodoStore.setDone(this, item.id, false);
-            refreshTodos();
-            return;
-        }
-
         long now = SystemClock.uptimeMillis();
         if (pendingTapItemId == item.id) {
             pendingTapItemId = -1L;
             uiHandler.removeCallbacksAndMessages(item.id);
-            showEditTodoDialog(item);
+            beginEditTodo(item);
             return;
         }
 
@@ -1199,6 +1256,104 @@ public class LockActivity extends Activity {
                 pendingTapItemId = -1L;
             }
         }, item.id, now + TODO_DOUBLE_TAP_MS);
+    }
+
+    private void beginEditTodo(TodoItem item) {
+        if (item == null || input == null) {
+            return;
+        }
+        if (inputBlock.getVisibility() == View.VISIBLE && !isEditingTodo()) {
+            saveInputDraft();
+        }
+        editingTodoId = item.id;
+        editingOriginalText = item.text == null ? "" : item.text;
+        hideEditUndoBanner();
+        updateEditModeLabel();
+        input.setHint(getString(R.string.edit_todo));
+        input.setText(item.text);
+        input.setSelection(input.getText().length());
+        showInputBlock(false);
+        refreshTodos();
+    }
+
+    private void saveEditedTodo() {
+        long editedId = editingTodoId;
+        String oldText = editingOriginalText;
+        String newText = input.getText().toString().trim();
+        if (!newText.isEmpty() && !newText.equals(oldText)) {
+            TodoStore.setText(this, editedId, newText);
+            lastEditedTodo = new EditedTodo(editedId, oldText);
+            showEditUndoBanner();
+        } else {
+            hideEditUndoBanner();
+        }
+        clearEditingTodo();
+        input.setText("");
+        hideInput(true);
+        refreshTodos();
+    }
+
+    private boolean isEditingTodo() {
+        return editingTodoId >= 0L;
+    }
+
+    private void clearEditingTodo() {
+        editingTodoId = -1L;
+        editingOriginalText = "";
+        if (input != null) {
+            input.setHint(getString(R.string.new_todo_hint));
+        }
+        if (editModeLabel != null) {
+            editModeLabel.setText("");
+            editModeLabel.setVisibility(View.GONE);
+        }
+    }
+
+    private void updateEditModeLabel() {
+        if (editModeLabel == null) {
+            return;
+        }
+        if (!isEditingTodo()) {
+            editModeLabel.setText("");
+            editModeLabel.setVisibility(View.GONE);
+            return;
+        }
+        String preview = editingOriginalText == null ? "" : editingOriginalText.trim();
+        if (preview.length() > 18) {
+            preview = preview.substring(0, 18) + "...";
+        }
+        editModeLabel.setText("수정 중 · " + preview);
+        editModeLabel.setVisibility(View.VISIBLE);
+    }
+
+    private void showEditUndoBanner() {
+        if (editUndoBanner == null) {
+            return;
+        }
+        editUndoBanner.setText("수정됨 · 되돌리기");
+        editUndoBanner.setVisibility(View.VISIBLE);
+        uiHandler.removeCallbacksAndMessages(editUndoBanner);
+        uiHandler.postAtTime(this::hideEditUndoBanner, editUndoBanner, SystemClock.uptimeMillis() + 5000L);
+    }
+
+    private void hideEditUndoBanner() {
+        if (editUndoBanner == null) {
+            return;
+        }
+        uiHandler.removeCallbacksAndMessages(editUndoBanner);
+        editUndoBanner.setVisibility(View.GONE);
+        editUndoBanner.setText("");
+    }
+
+    private void undoLastEdit() {
+        if (lastEditedTodo == null) {
+            hideEditUndoBanner();
+            return;
+        }
+        TodoStore.setText(this, lastEditedTodo.id, lastEditedTodo.oldText);
+        lastEditedTodo = null;
+        hideEditUndoBanner();
+        refreshTodos();
     }
 
     private void showEditTodoDialog(TodoItem item) {
@@ -1351,26 +1506,50 @@ public class LockActivity extends Activity {
         }
     }
 
+    private static final class EditedTodo {
+        final long id;
+        final String oldText;
+
+        EditedTodo(long id, String oldText) {
+            this.id = id;
+            this.oldText = oldText;
+        }
+    }
+
     private void toggleInput() {
         if (inputBlock.getVisibility() == View.VISIBLE) {
             closeInputFromButton();
             return;
         }
+        clearEditingTodo();
         restoreInputDraft();
+        showInputBlock(true);
+    }
+
+    private void showInputBlock(boolean animate) {
         animatePlusOpen();
         updateTopTodoDividerVisibility(false);
-        inputBlock.animate().cancel();
-        cancelInputBlockHeightAnimation();
-        inputBlock.setVisibility(View.VISIBLE);
-        inputBlock.setAlpha(0f);
-        inputBlock.setTranslationY(-dp(8));
-        setInputBlockHeight(0);
-        animateInputBlockHeight(0, inputBlockTargetHeight(), 190, null);
-        inputBlock.animate()
-                .alpha(1f)
-                .translationY(0f)
-                .setDuration(190)
-                .start();
+        if (inputBlock.getVisibility() != View.VISIBLE) {
+            inputBlock.animate().cancel();
+            cancelInputBlockHeightAnimation();
+            inputBlock.setVisibility(View.VISIBLE);
+            if (animate) {
+                inputBlock.setAlpha(0f);
+                inputBlock.setTranslationY(-dp(8));
+                setInputBlockHeight(0);
+                animateInputBlockHeight(0, inputBlockTargetHeight(), 190, null);
+                inputBlock.animate()
+                        .alpha(1f)
+                        .translationY(0f)
+                        .setDuration(190)
+                        .start();
+            } else {
+                inputBlock.setAlpha(1f);
+                inputBlock.setTranslationY(0f);
+                setInputBlockHeight(inputBlockTargetHeight());
+            }
+        }
+        setMicButtonVisible(true);
         input.requestFocus();
         InputMethodManager imm = (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
         if (imm != null) {
@@ -1389,6 +1568,8 @@ public class LockActivity extends Activity {
                 input.clearFocus();
             }
         }
+        setMicButtonVisible(false);
+        stopSpeechRecognition();
         animatePlusClosed();
         inputBlock.animate().cancel();
         cancelInputBlockHeightAnimation();
@@ -1405,13 +1586,21 @@ public class LockActivity extends Activity {
 
     private void closeInputFromButton() {
         clearInputDraft();
+        boolean wasEditing = isEditingTodo();
+        clearEditingTodo();
         if (input != null) {
             input.setText("");
         }
         hideInput(true);
+        if (wasEditing) {
+            refreshTodos();
+        }
     }
 
     private void saveInputDraft() {
+        if (isEditingTodo()) {
+            return;
+        }
         pendingInputDraft = input == null ? "" : input.getText().toString();
         pendingInputDraftSavedAt = pendingInputDraft.length() == 0 ? 0L : SystemClock.elapsedRealtime();
     }
@@ -1453,7 +1642,11 @@ public class LockActivity extends Activity {
     }
 
     private int inputBlockTargetHeight() {
-        return dp(72);
+        int height = dp(98);
+        if (editModeLabel != null && editModeLabel.getVisibility() == View.VISIBLE) {
+            height += dp(24);
+        }
+        return height;
     }
 
     private void setInputBlockHeight(int height) {
@@ -1515,8 +1708,9 @@ public class LockActivity extends Activity {
         plusButton.animateOpen();
         plusButton.animate()
                 .alpha(0.9f)
+                .translationX(-dp(26))
                 .translationY(-dp(2))
-                .setDuration(160)
+                .setDuration(220)
                 .start();
     }
 
@@ -1528,9 +1722,41 @@ public class LockActivity extends Activity {
         plusButton.animateClosed();
         plusButton.animate()
                 .alpha(1f)
+                .translationX(0f)
                 .translationY(0f)
-                .setDuration(150)
+                .setDuration(190)
                 .start();
+    }
+
+    private void setMicButtonVisible(boolean visible) {
+        if (micButton == null) {
+            return;
+        }
+        if (visible) {
+            micButton.setVisibility(View.VISIBLE);
+            micButton.animate().cancel();
+            micButton.setAlpha(0f);
+            micButton.setTranslationX(dp(10));
+            micButton.setScaleX(0.88f);
+            micButton.setScaleY(0.88f);
+            micButton.animate()
+                    .alpha(isListening ? 1.0f : 0.6f)
+                    .translationX(dp(30))
+                    .scaleX(1f)
+                    .scaleY(1f)
+                    .setDuration(220)
+                    .start();
+        } else {
+            micButton.animate().cancel();
+            micButton.animate()
+                    .alpha(0f)
+                    .translationX(dp(10))
+                    .scaleX(0.88f)
+                    .scaleY(0.88f)
+                    .setDuration(160)
+                    .withEndAction(() -> micButton.setVisibility(View.GONE))
+                    .start();
+        }
     }
 
     private final class PlusButtonView extends View {
@@ -1657,22 +1883,17 @@ public class LockActivity extends Activity {
             super.onDraw(canvas);
             float centerX = getWidth() * 0.5f;
             float centerY = getHeight() * 0.5f;
-            float radius = dp(14);
-
-            paint.setStyle(Paint.Style.FILL);
-            paint.setColor(0x18FFFFFF);
-            canvas.drawCircle(centerX, centerY, radius, paint);
 
             paint.setStyle(Paint.Style.STROKE);
-            paint.setStrokeWidth(dp(2));
+            paint.setStrokeWidth(dp(2.4f));
             paint.setColor(0xDFFFFFFF);
             float visualOffsetX = -dp(1.5f);
-            float startX = centerX + visualOffsetX - dp(6);
+            float startX = centerX + visualOffsetX - dp(7);
             float startY = centerY + dp(1);
             float midX = centerX + visualOffsetX - dp(1);
             float midY = centerY + dp(5);
-            float endX = centerX + visualOffsetX + dp(7);
-            float endY = centerY - dp(5);
+            float endX = centerX + visualOffsetX + dp(8);
+            float endY = centerY - dp(6);
             canvas.drawLine(startX, startY, midX, midY, paint);
             canvas.drawLine(midX, midY, endX, endY, paint);
         }
@@ -2094,8 +2315,8 @@ public class LockActivity extends Activity {
                     rowView.animate().cancel();
                     rowView.setScaleX(1f);
                     rowView.setScaleY(1f);
-                    actionHint.setText(item.done ? "\u2713" : "");
-                    actionHint.setTextColor(item.done ? 0x99FFFFFF : 0x00FFFFFF);
+                    actionHint.setText("");
+                    actionHint.setTextColor(0x00FFFFFF);
                     rowView.setBackgroundColor(0x00000000);
                     longPressRunnable = () -> {
                         longPressTriggered = true;
@@ -2131,23 +2352,9 @@ public class LockActivity extends Activity {
                     if (swiping) {
                         rowView.setTranslationX(moveDx * 0.82f);
                         rowView.setAlpha(1f);
-                        if (AppSettings.todoSwipeBothDirectionsDelete(LockActivity.this)) {
-                            actionHint.setText(getString(R.string.delete));
-                            actionHint.setTextColor(0xFFFFB3A8);
-                            rowView.setBackgroundColor(0x22C24132);
-                        } else if (item.done) {
-                            actionHint.setText("\uD574\uC81C");
-                            actionHint.setTextColor(0xCCBFE7CC);
-                            rowView.setBackgroundColor(0x185F8F73);
-                        } else if (moveDx < 0) {
-                            actionHint.setText(getString(R.string.todo_done_action));
-                            actionHint.setTextColor(0xCC9BE7C2);
-                            rowView.setBackgroundColor(0x1822B573);
-                        } else {
-                            actionHint.setText(getString(R.string.delete));
-                            actionHint.setTextColor(0xFFFFB3A8);
-                            rowView.setBackgroundColor(0x22C24132);
-                        }
+                        actionHint.setText(getString(R.string.delete));
+                        actionHint.setTextColor(0xFFFFB3A8);
+                        rowView.setBackgroundColor(0x22C24132);
                     }
                     return true;
                 case MotionEvent.ACTION_UP:
@@ -2167,8 +2374,8 @@ public class LockActivity extends Activity {
                                 .alpha(1f)
                                 .setDuration(140)
                                 .withEndAction(() -> {
-                                    actionHint.setText(item.done ? "\u2713" : "");
-                                    actionHint.setTextColor(item.done ? 0x99FFFFFF : 0x00FFFFFF);
+                                    actionHint.setText("");
+                                    actionHint.setTextColor(0x00FFFFFF);
                                     rowView.setBackgroundColor(0x00000000);
                                 })
                                 .start();
@@ -2177,29 +2384,9 @@ public class LockActivity extends Activity {
                         }
                         return true;
                     }
-                    if (AppSettings.todoSwipeBothDirectionsDelete(LockActivity.this)) {
-                        actionHint.setText(getString(R.string.delete));
-                        actionHint.setTextColor(0xFFFFB3A8);
-                        animateDeleteTodo(item, index, rowView);
-                    } else if (item.done) {
-                        actionHint.setText("\uD574\uC81C");
-                        actionHint.setTextColor(0xCCBFE7CC);
-                        animateThen(rowView, dx < 0 ? -rowView.getWidth() : rowView.getWidth(), () -> {
-                            TodoStore.setDone(LockActivity.this, item.id, false);
-                            refreshTodos();
-                        });
-                    } else if (dx < 0) {
-                        actionHint.setText(getString(R.string.todo_done_action));
-                        actionHint.setTextColor(0xCC9BE7C2);
-                        animateThen(rowView, -rowView.getWidth(), () -> {
-                            TodoStore.setDone(LockActivity.this, item.id, true);
-                            refreshTodos();
-                        });
-                    } else {
-                        actionHint.setText(getString(R.string.delete));
-                        actionHint.setTextColor(0xFFFFB3A8);
-                        animateDeleteTodo(item, index, rowView);
-                    }
+                    actionHint.setText(getString(R.string.delete));
+                    actionHint.setTextColor(0xFFFFB3A8);
+                    animateDeleteTodo(item, index, rowView);
                     return true;
                 case MotionEvent.ACTION_CANCEL:
                     view.getParent().requestDisallowInterceptTouchEvent(false);
@@ -2216,8 +2403,8 @@ public class LockActivity extends Activity {
                             .alpha(1f)
                             .setDuration(140)
                             .withEndAction(() -> {
-                                actionHint.setText(item.done ? "\u2713" : "");
-                                actionHint.setTextColor(item.done ? 0x99FFFFFF : 0x00FFFFFF);
+                                actionHint.setText("");
+                                actionHint.setTextColor(0x00FFFFFF);
                                 rowView.setBackgroundColor(0x00000000);
                             })
                             .start();

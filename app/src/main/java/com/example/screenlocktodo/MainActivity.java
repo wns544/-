@@ -8,6 +8,7 @@ import android.app.Dialog;
 import android.app.LocaleManager;
 import android.app.NotificationManager;
 import android.content.ClipData;
+import android.content.ClipboardManager;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
@@ -474,7 +475,15 @@ public class MainActivity extends Activity {
 
     private View todoCard() {
         LinearLayout card = card();
-        card.addView(sectionTitle(getString(R.string.section_todos), getString(R.string.todo_gesture_hint)));
+        LinearLayout todoHeader = new LinearLayout(this);
+        todoHeader.setOrientation(LinearLayout.HORIZONTAL);
+        todoHeader.setGravity(Gravity.CENTER_VERTICAL);
+        todoHeader.addView(sectionTitle(getString(R.string.section_todos), getString(R.string.todo_gesture_hint)),
+                new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
+        CopyTodoButtonView copyButton = new CopyTodoButtonView(this);
+        copyButton.setOnClickListener(v -> copyTodosToClipboard());
+        todoHeader.addView(copyButton, new LinearLayout.LayoutParams(dp(44), dp(44)));
+        card.addView(todoHeader);
 
         LinearLayout inputRow = new LinearLayout(this);
         inputRow.setOrientation(LinearLayout.HORIZONTAL);
@@ -525,6 +534,32 @@ public class MainActivity extends Activity {
         card.addView(todoList);
 
         return card;
+    }
+
+    private void copyTodosToClipboard() {
+        List<TodoItem> items = TodoStore.load(this);
+        StringBuilder builder = new StringBuilder();
+        for (TodoItem item : items) {
+            String text = item.text == null ? "" : item.text.trim();
+            if (text.length() == 0) {
+                continue;
+            }
+            if (builder.length() > 0) {
+                builder.append('\n');
+            }
+            builder.append(text);
+        }
+        if (builder.length() == 0) {
+            Toast.makeText(this, "복사할 할 일이 없습니다.", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        ClipboardManager clipboard = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+        if (clipboard == null) {
+            Toast.makeText(this, "클립보드를 사용할 수 없습니다.", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        clipboard.setPrimaryClip(ClipData.newPlainText("잠금메모", builder.toString()));
+        Toast.makeText(this, "잠금메모를 복사했습니다.", Toast.LENGTH_SHORT).show();
     }
 
     private View drawerLayer() {
@@ -1117,7 +1152,7 @@ public class MainActivity extends Activity {
             list.addView(empty);
         } else {
             for (TodoItem item : cloudServerItems) {
-                TextView row = text((item.done ? "✓ " : "□ ") + item.text, 14, item.done ? COLOR_MUTED : COLOR_INK, false);
+                TextView row = text("· " + item.text, 14, COLOR_INK, false);
                 row.setPadding(dp(12), dp(10), dp(12), dp(10));
                 row.setBackground(rounded(COLOR_FIELD, 12));
                 LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
@@ -1362,23 +1397,11 @@ public class MainActivity extends Activity {
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setPadding(dp(8), dp(6), dp(4), dp(6));
-        row.setBackground(rounded(item.done ? COLOR_FIELD : COLOR_PANEL, 16));
+        row.setPadding(dp(14), dp(6), dp(4), dp(6));
+        row.setBackground(rounded(COLOR_PANEL, 16));
         row.setTag(item.id);
 
-        CheckBox checkBox = new CheckBox(this);
-        tintCheckBox(checkBox);
-        checkBox.setChecked(item.done);
-        checkBox.setOnCheckedChangeListener((buttonView, isChecked) -> {
-            TodoStore.setDone(this, item.id, isChecked);
-            refreshTodos();
-        });
-        row.addView(checkBox, new LinearLayout.LayoutParams(dp(46), dp(46)));
-
-        TextView label = text(item.text, 16, item.done ? COLOR_MUTED : COLOR_INK, false);
-        if (item.done) {
-            label.setPaintFlags(label.getPaintFlags() | Paint.STRIKE_THRU_TEXT_FLAG);
-        }
+        TextView label = text(item.text, 16, COLOR_INK, false);
         label.setOnClickListener(v -> handleMainTodoTap(item));
         label.setOnLongClickListener(v -> startMainTodoDrag(row, item));
         row.addView(label, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
@@ -2373,6 +2396,39 @@ public class MainActivity extends Activity {
         button.setTextColor(color);
         button.setBackground(rounded(0x00FFFFFF, 8));
         return button;
+    }
+
+    private final class CopyTodoButtonView extends View {
+        private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final RectF rect = new RectF();
+
+        CopyTodoButtonView(Context context) {
+            super(context);
+            setClickable(true);
+            setFocusable(true);
+        }
+
+        @Override
+        protected void onDraw(Canvas canvas) {
+            super.onDraw(canvas);
+            paint.setStyle(Paint.Style.STROKE);
+            paint.setStrokeWidth(dp(1.8f));
+            paint.setStrokeCap(Paint.Cap.ROUND);
+            paint.setStrokeJoin(Paint.Join.ROUND);
+            paint.setColor(COLOR_ACCENT);
+
+            float backLeft = dp(13);
+            float backTop = dp(10);
+            float width = dp(16);
+            float height = dp(20);
+            rect.set(backLeft, backTop, backLeft + width, backTop + height);
+            canvas.drawRoundRect(rect, dp(3), dp(3), paint);
+
+            float frontLeft = dp(17);
+            float frontTop = dp(14);
+            rect.set(frontLeft, frontTop, frontLeft + width, frontTop + height);
+            canvas.drawRoundRect(rect, dp(3), dp(3), paint);
+        }
     }
 
     private void tintCheckBox(CheckBox checkBox) {
