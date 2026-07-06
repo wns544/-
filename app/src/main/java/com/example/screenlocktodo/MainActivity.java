@@ -23,6 +23,7 @@ import android.graphics.Rect;
 import android.graphics.RectF;
 import android.graphics.Typeface;
 import android.graphics.drawable.ColorDrawable;
+import android.graphics.drawable.Drawable;
 import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
 import android.os.Build;
@@ -509,8 +510,7 @@ public class MainActivity extends Activity {
         });
         inputRow.addView(input, new LinearLayout.LayoutParams(0, dp(46), 1));
 
-        Button add = filledButton("+");
-        add.setTextSize(24);
+        AddTodoButtonView add = new AddTodoButtonView(this);
         add.setOnClickListener(v -> addTodo());
         LinearLayout.LayoutParams addParams = new LinearLayout.LayoutParams(dp(46), dp(46));
         addParams.leftMargin = dp(8);
@@ -1412,12 +1412,12 @@ public class MainActivity extends Activity {
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setPadding(dp(14), dp(6), dp(4), dp(6));
+        row.setPadding(dp(16), dp(6), dp(2), dp(6));
         row.setBackground(rounded(COLOR_PANEL, 16));
         row.setTag(item.id);
 
         TextView label = text(item.text, 16, COLOR_INK, false);
-        label.setPadding(0, 0, dp(6), 0);
+        label.setPadding(0, 0, dp(10), 0);
         label.setOnClickListener(v -> handleMainTodoTap(item));
         label.setOnLongClickListener(v -> startMainTodoDrag(row, item));
         row.addView(label, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
@@ -1425,17 +1425,16 @@ public class MainActivity extends Activity {
         CopyTodoButtonView copy = new CopyTodoButtonView(this);
         copy.setOnClickListener(v -> copyTodoToClipboard(item));
         LinearLayout.LayoutParams copyParams = new LinearLayout.LayoutParams(dp(40), dp(42));
-        copyParams.rightMargin = dp(2);
         row.addView(copy, copyParams);
 
-        Button delete = quietButton(getString(R.string.delete), COLOR_DANGER);
+        DeleteTodoButtonView delete = new DeleteTodoButtonView(this);
         delete.setOnClickListener(v -> {
             deletedTodos.push(new DeletedTodo(item, index));
             TodoStore.remove(this, item.id);
             updateUndoDeleteButton();
             refreshTodos();
         });
-        row.addView(delete, new LinearLayout.LayoutParams(dp(68), dp(42)));
+        row.addView(delete, new LinearLayout.LayoutParams(dp(40), dp(42)));
         return row;
     }
 
@@ -2420,11 +2419,11 @@ public class MainActivity extends Activity {
         return button;
     }
 
-    private final class CopyTodoButtonView extends View {
+    private final class AddTodoButtonView extends View {
         private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
         private final RectF rect = new RectF();
 
-        CopyTodoButtonView(Context context) {
+        AddTodoButtonView(Context context) {
             super(context);
             setClickable(true);
             setFocusable(true);
@@ -2433,24 +2432,71 @@ public class MainActivity extends Activity {
         @Override
         protected void onDraw(Canvas canvas) {
             super.onDraw(canvas);
-            paint.setStyle(Paint.Style.STROKE);
-            paint.setStrokeWidth(dp(1.8f));
-            paint.setStrokeCap(Paint.Cap.ROUND);
-            paint.setStrokeJoin(Paint.Join.ROUND);
+            float inset = dp(2);
+            rect.set(inset, inset, getWidth() - inset, getHeight() - inset);
+            paint.setStyle(Paint.Style.FILL);
             paint.setColor(COLOR_ACCENT);
+            canvas.drawRoundRect(rect, dp(15), dp(15), paint);
 
-            float backLeft = dp(13);
-            float backTop = dp(10);
-            float width = dp(16);
-            float height = dp(20);
-            rect.set(backLeft, backTop, backLeft + width, backTop + height);
-            canvas.drawRoundRect(rect, dp(3), dp(3), paint);
-
-            float frontLeft = dp(17);
-            float frontTop = dp(14);
-            rect.set(frontLeft, frontTop, frontLeft + width, frontTop + height);
-            canvas.drawRoundRect(rect, dp(3), dp(3), paint);
+            float centerX = getWidth() * 0.5f;
+            float centerY = getHeight() * 0.5f;
+            float half = dp(7.5f);
+            paint.setStyle(Paint.Style.STROKE);
+            paint.setStrokeWidth(dp(2.2f));
+            paint.setStrokeCap(Paint.Cap.ROUND);
+            paint.setColor(0xFFFFFFFF);
+            canvas.drawLine(centerX - half, centerY, centerX + half, centerY, paint);
+            canvas.drawLine(centerX, centerY - half, centerX, centerY + half, paint);
         }
+    }
+
+    private final class CopyTodoButtonView extends View {
+        private final Drawable icon;
+
+        CopyTodoButtonView(Context context) {
+            super(context);
+            setClickable(true);
+            setFocusable(true);
+            icon = requireDrawable(R.drawable.ic_copy_lucide);
+        }
+
+        @Override
+        protected void onDraw(Canvas canvas) {
+            super.onDraw(canvas);
+            drawCenteredDrawable(canvas, icon, this, dp(20));
+        }
+    }
+
+    private final class DeleteTodoButtonView extends View {
+        private final Drawable icon;
+
+        DeleteTodoButtonView(Context context) {
+            super(context);
+            setClickable(true);
+            setFocusable(true);
+            icon = requireDrawable(R.drawable.ic_trash_lucide);
+        }
+
+        @Override
+        protected void onDraw(Canvas canvas) {
+            super.onDraw(canvas);
+            drawCenteredDrawable(canvas, icon, this, dp(20));
+        }
+    }
+
+    private Drawable requireDrawable(int resId) {
+        Drawable drawable = getDrawable(resId);
+        if (drawable == null) {
+            throw new IllegalStateException("Missing drawable resource " + resId);
+        }
+        return drawable.mutate();
+    }
+
+    private void drawCenteredDrawable(Canvas canvas, Drawable drawable, View host, int sizePx) {
+        int left = Math.round((host.getWidth() - sizePx) / 2f);
+        int top = Math.round((host.getHeight() - sizePx) / 2f);
+        drawable.setBounds(left, top, left + sizePx, top + sizePx);
+        drawable.draw(canvas);
     }
 
     private void tintCheckBox(CheckBox checkBox) {

@@ -693,6 +693,7 @@ public class LockActivity extends Activity {
         plusTouchRow.setFocusable(false);
         plusTouchRow.setClipChildren(false);
         plusTouchRow.setClipToPadding(false);
+        plusTouchRow.setTranslationY(dp(2));
         plusButton = new PlusButtonView(this);
         plusButton.setOnClickListener(v -> toggleInput());
         FrameLayout.LayoutParams plusButtonParams = new FrameLayout.LayoutParams(
@@ -805,6 +806,7 @@ public class LockActivity extends Activity {
         todoList.setOrientation(LinearLayout.VERTICAL);
         todoList.setGravity(Gravity.CENTER_HORIZONTAL);
         todoList.setPadding(0, 0, 0, dp(18));
+        todoList.setTranslationY(-dp(1));
         root.addView(todoList, narrowParams());
 
         curtainContent.addView(menuButton, menuParams);
@@ -2024,7 +2026,7 @@ public class LockActivity extends Activity {
     private LinearLayout.LayoutParams topTodoDividerParams() {
         return new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
-                dp(8)
+                0
         );
     }
 
