@@ -118,8 +118,17 @@ public class LockActivity extends Activity {
     private SpeechRecognizer speechRecognizer;
     private ImageView micButton;
     private boolean isListening = false;
+    private boolean speechListeningRequested = false;
+    private boolean speechRestartScheduled = false;
     private int speechInsertStart = -1;
     private static final int REQUEST_RECORD_AUDIO_PERMISSION = 200;
+    private static final long SPEECH_RESTART_DELAY_MS = 260L;
+    private final Runnable speechRestartRunnable = () -> {
+        speechRestartScheduled = false;
+        if (speechListeningRequested && !isFinishing()) {
+            startSpeechRecognition();
+        }
+    };
     private final BroadcastReceiver clockReceiver = new BroadcastReceiver() {
         @Override
         public void onReceive(Context context, Intent intent) {
@@ -246,7 +255,7 @@ public class LockActivity extends Activity {
     }
 
     private void toggleSpeechRecognition() {
-        if (isListening) {
+        if (speechListeningRequested || isListening || speechRestartScheduled) {
             stopSpeechRecognition();
         } else {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
@@ -260,7 +269,10 @@ public class LockActivity extends Activity {
     }
 
     private void startSpeechRecognition() {
+        speechListeningRequested = true;
+        speechRestartScheduled = false;
         if (!SpeechRecognizer.isRecognitionAvailable(this)) {
+            speechListeningRequested = false;
             Toast.makeText(this, "이 기기에서 음성 인식을 사용할 수 없습니다.", Toast.LENGTH_SHORT).show();
             return;
         }
@@ -285,24 +297,33 @@ public class LockActivity extends Activity {
                 public void onBufferReceived(byte[] buffer) {}
                 @Override
                 public void onEndOfSpeech() {
-                    updateMicListening(false);
+                    updateMicListening(speechListeningRequested);
                 }
                 @Override
                 public void onError(int error) {
                     isListening = false;
                     speechInsertStart = -1;
+                    if (speechListeningRequested && shouldRestartSpeechAfterError(error)) {
+                        updateMicListening(true);
+                        scheduleSpeechRestart();
+                        return;
+                    }
+                    speechListeningRequested = false;
                     updateMicListening(false);
                     Toast.makeText(LockActivity.this, "음성 입력 실패: " + speechErrorMessage(error), Toast.LENGTH_SHORT).show();
                 }
                 @Override
                 public void onResults(Bundle results) {
                     isListening = false;
-                    updateMicListening(false);
+                    updateMicListening(speechListeningRequested);
                     ArrayList<String> matches = results.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
                     if (matches != null && !matches.isEmpty()) {
                         insertSpeechText(matches.get(0), true);
                     }
                     speechInsertStart = -1;
+                    if (speechListeningRequested) {
+                        scheduleSpeechRestart();
+                    }
                 }
                 @Override
                 public void onPartialResults(Bundle partialResults) {
@@ -331,6 +352,8 @@ public class LockActivity extends Activity {
             }
             speechRecognizer.startListening(intent);
         } catch (Exception e) {
+            speechListeningRequested = false;
+            speechRestartScheduled = false;
             DiagnosticLog.record(this, "NudgeLockActivity", "speech recognizer start failed", e);
             Toast.makeText(this, "음성 인식을 시작할 수 없습니다.", Toast.LENGTH_SHORT).show();
         }
@@ -353,9 +376,26 @@ public class LockActivity extends Activity {
         return "ko-KR";
     }
 
+    private boolean shouldRestartSpeechAfterError(int error) {
+        return error == SpeechRecognizer.ERROR_NO_MATCH
+                || error == SpeechRecognizer.ERROR_SPEECH_TIMEOUT
+                || error == SpeechRecognizer.ERROR_RECOGNIZER_BUSY;
+    }
+
+    private void scheduleSpeechRestart() {
+        if (!speechListeningRequested || speechRestartScheduled || isFinishing()) {
+            return;
+        }
+        speechRestartScheduled = true;
+        uiHandler.postDelayed(speechRestartRunnable, SPEECH_RESTART_DELAY_MS);
+    }
+
     private void stopSpeechRecognition() {
+        speechListeningRequested = false;
+        speechRestartScheduled = false;
+        uiHandler.removeCallbacks(speechRestartRunnable);
         if (speechRecognizer != null) {
-            speechRecognizer.stopListening();
+            speechRecognizer.cancel();
         }
         isListening = false;
         speechInsertStart = -1;
