@@ -92,6 +92,7 @@ public class LockMonitorService extends Service {
                 lastUserDismissedLockAt = 0L;
                 cancelLockNotification(context);
                 TodoStore.warm(context);
+                closeLockActivityForScreenOffIfNeeded(context);
                 preArmLockScreen(context);
             } else if (Intent.ACTION_SCREEN_ON.equals(action)) {
                 DiagnosticLog.record(context, TAG, "screen event on " + displayStateSummary(context));
@@ -118,6 +119,15 @@ public class LockMonitorService extends Service {
     };
 
     private boolean registered;
+
+    private void closeLockActivityForScreenOffIfNeeded(Context context) {
+        if (!AppSettings.releaseLockOnScreenOff(context)) {
+            return;
+        }
+        Intent closeIntent = new Intent(LockActivity.ACTION_CLOSE_FOR_SCREEN_OFF).setPackage(context.getPackageName());
+        context.sendBroadcast(closeIntent);
+        DiagnosticLog.record(context, TAG, "close lock activity for AOD friendly mode");
+    }
 
     @Override
     protected void attachBaseContext(Context newBase) {
@@ -461,6 +471,13 @@ public class LockMonitorService extends Service {
             return;
         }
 
+        if (!wakeDisplay && !isUserAwakeDisplay(context)) {
+            DiagnosticLog.record(context, TAG, "show lock skipped id=" + attemptId
+                    + " source=" + source
+                    + "; display not user-awake " + displayStateSummary(context));
+            return;
+        }
+
         DiagnosticLog.recordAppState(context, "show lock id=" + attemptId
                 + " source=" + source
                 + " wake=" + wakeDisplay
@@ -549,12 +566,20 @@ public class LockMonitorService extends Service {
         }
         SensorManager sensorManager = (SensorManager) context.getSystemService(SENSOR_SERVICE);
         if (sensorManager == null) {
+            if (isPassiveScreenWakeSource(source)) {
+                DiagnosticLog.record(context, TAG, "show lock skipped source=" + source + "; no sensor manager for passive wake");
+                return;
+            }
             showLockScreen(context, wakeDisplay, allowBeforeKeyguard, allowNotificationFallback, source);
             return;
         }
 
         Sensor proximitySensor = sensorManager.getDefaultSensor(Sensor.TYPE_PROXIMITY);
         if (proximitySensor == null) {
+            if (isPassiveScreenWakeSource(source)) {
+                DiagnosticLog.record(context, TAG, "show lock skipped source=" + source + "; no proximity sensor for passive wake");
+                return;
+            }
             showLockScreen(context, wakeDisplay, allowBeforeKeyguard, allowNotificationFallback, source);
             return;
         }
@@ -600,8 +625,17 @@ public class LockMonitorService extends Service {
             completed[0] = true;
             clearActiveProximityCheck(sensorManager, listener);
             DiagnosticLog.record(appContext, TAG, "proximity check timed out source=" + source);
+            if (isPassiveScreenWakeSource(source)) {
+                DiagnosticLog.record(appContext, TAG, "show lock skipped source=" + source + "; proximity timeout on passive wake");
+                return;
+            }
             showLockScreen(appContext, wakeDisplay, allowBeforeKeyguard, allowNotificationFallback, source);
         }, proximityToken, POCKET_CHECK_TIMEOUT_MS);
+    }
+
+    private boolean isPassiveScreenWakeSource(String source) {
+        return source != null
+                && (source.startsWith("screen_on") || source.startsWith("display_on"));
     }
 
     private void clearActiveProximityCheck(SensorManager sensorManager, SensorEventListener listener) {
@@ -702,6 +736,13 @@ public class LockMonitorService extends Service {
         }
         NotificationManager manager = (NotificationManager) context.getSystemService(NOTIFICATION_SERVICE);
         return manager != null && manager.canUseFullScreenIntent();
+    }
+
+    private boolean isUserAwakeDisplay(Context context) {
+        PowerManager powerManager = (PowerManager) context.getSystemService(POWER_SERVICE);
+        return powerManager != null
+                && powerManager.isInteractive()
+                && defaultDisplayState(context) == Display.STATE_ON;
     }
 
     private String displayStateSummary(Context context) {

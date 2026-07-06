@@ -14,6 +14,8 @@ final class AppSettings {
     private static final String KEY_CURTAIN_UNLOCK_BOTH_DIRECTIONS = "curtain_unlock_both_directions";
     private static final String KEY_TODO_SWIPE_BOTH_DIRECTIONS_DELETE = "todo_swipe_both_directions_delete";
     private static final String KEY_DOUBLE_TAP_SCREEN_OFF_ENABLED = "double_tap_screen_off_enabled";
+    private static final String KEY_RELEASE_LOCK_ON_SCREEN_OFF = "release_lock_on_screen_off";
+    private static final String KEY_COMPACT_LOCK_CLOCK_LAYOUT = "compact_lock_clock_layout";
     private static final String KEY_TODOS_LOCKED = "todos_locked";
     private static final String KEY_BATTERY_GUIDE_SHOWN = "battery_guide_shown";
     private static final String KEY_LANGUAGE_TAG = "language_tag";
@@ -78,6 +80,22 @@ final class AppSettings {
 
     static void setDoubleTapScreenOffEnabled(Context context, boolean value) {
         prefs(context).edit().putBoolean(KEY_DOUBLE_TAP_SCREEN_OFF_ENABLED, value).apply();
+    }
+
+    static boolean releaseLockOnScreenOff(Context context) {
+        return prefs(context).getBoolean(KEY_RELEASE_LOCK_ON_SCREEN_OFF, false);
+    }
+
+    static void setReleaseLockOnScreenOff(Context context, boolean value) {
+        prefs(context).edit().putBoolean(KEY_RELEASE_LOCK_ON_SCREEN_OFF, value).apply();
+    }
+
+    static boolean compactLockClockLayout(Context context) {
+        return prefs(context).getBoolean(KEY_COMPACT_LOCK_CLOCK_LAYOUT, false);
+    }
+
+    static void setCompactLockClockLayout(Context context, boolean value) {
+        prefs(context).edit().putBoolean(KEY_COMPACT_LOCK_CLOCK_LAYOUT, value).apply();
     }
 
     static boolean todosLocked(Context context) {

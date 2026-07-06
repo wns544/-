@@ -471,6 +471,50 @@ public class MainActivity extends Activity {
         doubleTapWarning.setPadding(dp(34), dp(2), 0, dp(2));
         card.addView(doubleTapWarning);
 
+        CheckBox aodFriendlyMode = new CheckBox(this);
+        tintCheckBox(aodFriendlyMode);
+        aodFriendlyMode.setText("AOD \uC54C\uB9BC \uC6B0\uC120 \uBAA8\uB4DC");
+        aodFriendlyMode.setTextSize(15);
+        aodFriendlyMode.setTextColor(COLOR_INK);
+        aodFriendlyMode.setPadding(0, dp(8), 0, 0);
+        aodFriendlyMode.setChecked(AppSettings.releaseLockOnScreenOff(this));
+        aodFriendlyMode.setOnCheckedChangeListener((buttonView, isChecked) -> {
+            AppSettings.setReleaseLockOnScreenOff(MainActivity.this, isChecked);
+            DiagnosticLog.record(MainActivity.this, "NudgeMain", "release lock on screen off=" + isChecked);
+        });
+        card.addView(aodFriendlyMode);
+
+        TextView aodFriendlyDesc = text(
+                "\uD654\uBA74\uC774 \uAEBC\uC9C0\uBA74 \uC7A0\uAE50 \uD560 \uC77C \uC7A0\uAE08\uD654\uBA74\uC744 \uB0B4\uB824 \uC0BC\uC131 AOD \uC54C\uB9BC\uC774 \uBCF4\uC774\uAC8C \uD569\uB2C8\uB2E4.",
+                13,
+                COLOR_MUTED,
+                false
+        );
+        aodFriendlyDesc.setPadding(dp(34), dp(2), 0, dp(2));
+        card.addView(aodFriendlyDesc);
+
+        CheckBox compactClockLayout = new CheckBox(this);
+        tintCheckBox(compactClockLayout);
+        compactClockLayout.setText("\uC2DC\uACC4 \uC704\uCE58 \uC870\uC808\uB85C \uBA54\uBAA8 \uACF5\uAC04 \uD655\uBCF4");
+        compactClockLayout.setTextSize(15);
+        compactClockLayout.setTextColor(COLOR_INK);
+        compactClockLayout.setPadding(0, dp(8), 0, 0);
+        compactClockLayout.setChecked(AppSettings.compactLockClockLayout(this));
+        compactClockLayout.setOnCheckedChangeListener((buttonView, isChecked) -> {
+            AppSettings.setCompactLockClockLayout(MainActivity.this, isChecked);
+            DiagnosticLog.record(MainActivity.this, "NudgeMain", "compact lock clock layout=" + isChecked);
+        });
+        card.addView(compactClockLayout);
+
+        TextView compactClockDesc = text(
+                "\uC2DC\uACC4\uC640 + \uBC84\uD2BC\uC744 \uC704\uB85C \uB2F9\uACA8 \uC7A0\uAE08\uD654\uBA74\uC5D0 \uBCF4\uC774\uB294 \uBA54\uBAA8 \uACF5\uAC04\uC744 \uB298\uB9BD\uB2C8\uB2E4.",
+                13,
+                COLOR_MUTED,
+                false
+        );
+        compactClockDesc.setPadding(dp(34), dp(2), 0, dp(2));
+        card.addView(compactClockDesc);
+
         return card;
     }
 

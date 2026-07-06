@@ -63,6 +63,7 @@ import java.util.Locale;
 
 public class LockActivity extends Activity {
     static final String EXTRA_TURN_SCREEN_ON = "com.example.screenlocktodo.TURN_SCREEN_ON";
+    static final String ACTION_CLOSE_FOR_SCREEN_OFF = "com.example.screenlocktodo.CLOSE_FOR_SCREEN_OFF";
     private static volatile boolean showing;
     private static volatile boolean visible;
     private static volatile long lastVisibleAt;
@@ -114,6 +115,7 @@ public class LockActivity extends Activity {
     private String lastBackgroundKey = "";
     private ValueAnimator inputBlockHeightAnimator;
     private final Handler uiHandler = new Handler(Looper.getMainLooper());
+    private boolean closeForScreenOffReceiverRegistered;
     
     private SpeechRecognizer speechRecognizer;
     private ImageView micButton;
@@ -135,6 +137,14 @@ public class LockActivity extends Activity {
             updateClock();
         }
     };
+    private final BroadcastReceiver closeForScreenOffReceiver = new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            if (ACTION_CLOSE_FOR_SCREEN_OFF.equals(intent.getAction())) {
+                closeForScreenOff();
+            }
+        }
+    };
 
     @Override
     protected void attachBaseContext(Context newBase) {
@@ -150,6 +160,7 @@ public class LockActivity extends Activity {
         todosLocked = AppSettings.todosLocked(this);
         DiagnosticLog.recordAppState(this, "lock activity onCreate turnScreenOn=" + getIntent().getBooleanExtra(EXTRA_TURN_SCREEN_ON, true));
         LockMonitorService.cancelLockNotification(this);
+        registerCloseForScreenOffReceiver();
         registerBackHandler();
         setContentView(buildContent());
         refreshTodos();
@@ -241,6 +252,7 @@ public class LockActivity extends Activity {
     protected void onDestroy() {
         DiagnosticLog.record(this, "NudgeLockActivity", "onDestroy");
         showing = false;
+        unregisterCloseForScreenOffReceiver();
         unregisterClockReceiver();
         uiHandler.removeCallbacksAndMessages(null);
         if (inputBlockHeightAnimator != null) {
@@ -498,10 +510,13 @@ public class LockActivity extends Activity {
             }
         }
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS);
+        getWindow().clearFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN);
         getWindow().setNavigationBarColor(0x00000000);
-        getWindow().setStatusBarColor(overlayColor());
+        getWindow().setStatusBarColor(0x00000000);
         int systemUiFlags = getWindow().getDecorView().getSystemUiVisibility();
-        systemUiFlags |= View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+        systemUiFlags &= ~View.SYSTEM_UI_FLAG_FULLSCREEN;
+        systemUiFlags |= View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+                | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
                 | View.SYSTEM_UI_FLAG_LAYOUT_STABLE
                 | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
                 | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY;
@@ -515,6 +530,7 @@ public class LockActivity extends Activity {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             getWindow().setDecorFitsSystemWindows(false);
             if (getWindow().getInsetsController() != null) {
+                getWindow().getInsetsController().show(android.view.WindowInsets.Type.statusBars());
                 getWindow().getInsetsController().hide(android.view.WindowInsets.Type.navigationBars());
                 getWindow().getInsetsController().setSystemBarsBehavior(
                         android.view.WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
@@ -704,7 +720,8 @@ public class LockActivity extends Activity {
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setGravity(Gravity.CENTER_HORIZONTAL);
-        root.setPadding(dp(18), dp(34), dp(18), dp(32));
+        boolean compactClockLayout = AppSettings.compactLockClockLayout(this);
+        root.setPadding(dp(18), dp(lockRootTopPaddingDp(compactClockLayout)), dp(18), dp(32));
         scroll.addView(root, new ScrollView.LayoutParams(
                 ScrollView.LayoutParams.MATCH_PARENT,
                 ScrollView.LayoutParams.WRAP_CONTENT
@@ -733,7 +750,7 @@ public class LockActivity extends Activity {
         plusTouchRow.setFocusable(false);
         plusTouchRow.setClipChildren(false);
         plusTouchRow.setClipToPadding(false);
-        plusTouchRow.setTranslationY(dp(2));
+        plusTouchRow.setTranslationY(dp(plusTouchTranslationDp(compactClockLayout)));
         plusButton = new PlusButtonView(this);
         plusButton.setOnClickListener(v -> toggleInput());
         FrameLayout.LayoutParams plusButtonParams = new FrameLayout.LayoutParams(
@@ -760,7 +777,7 @@ public class LockActivity extends Activity {
         plusTouchRow.addView(micButton, plusMicParams);
         root.addView(plusTouchRow, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
-                dp(70)
+                dp(plusTouchRowHeightDp(compactClockLayout))
         ));
 
         inputBlock = new LinearLayout(this);
@@ -845,8 +862,8 @@ public class LockActivity extends Activity {
         todoList = new LinearLayout(this);
         todoList.setOrientation(LinearLayout.VERTICAL);
         todoList.setGravity(Gravity.CENTER_HORIZONTAL);
-        todoList.setPadding(0, 0, 0, dp(18));
-        todoList.setTranslationY(-dp(1));
+        todoList.setPadding(0, dp(todoListTopPaddingDp(compactClockLayout)), 0, dp(18));
+        todoList.setTranslationY(dp(todoListTranslationDp(compactClockLayout)));
         root.addView(todoList, narrowParams());
 
         curtainContent.addView(menuButton, menuParams);
@@ -884,6 +901,27 @@ public class LockActivity extends Activity {
         }
         unregisterReceiver(clockReceiver);
         clockReceiverRegistered = false;
+    }
+
+    private void registerCloseForScreenOffReceiver() {
+        if (closeForScreenOffReceiverRegistered) {
+            return;
+        }
+        IntentFilter filter = new IntentFilter(ACTION_CLOSE_FOR_SCREEN_OFF);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(closeForScreenOffReceiver, filter, Context.RECEIVER_NOT_EXPORTED);
+        } else {
+            registerReceiver(closeForScreenOffReceiver, filter);
+        }
+        closeForScreenOffReceiverRegistered = true;
+    }
+
+    private void unregisterCloseForScreenOffReceiver() {
+        if (!closeForScreenOffReceiverRegistered) {
+            return;
+        }
+        unregisterReceiver(closeForScreenOffReceiver);
+        closeForScreenOffReceiverRegistered = false;
     }
 
     private void toggleMenu() {
@@ -1481,13 +1519,43 @@ public class LockActivity extends Activity {
     }
 
     private void deleteTodo(TodoItem item, int index) {
-        deletedTodos.push(new DeletedTodo(item, index));
+        deletedTodos.push(new DeletedTodo(item, currentTodoIndex(item.id, index)));
         updateMenuButtons();
         TodoStore.remove(this, item.id);
         refreshTodos();
     }
 
-    private void animateDeleteTodo(TodoItem item, int index, View rowView) {
+    private void deleteTodoAfterRowAnimation(TodoItem item, int index, View rowView, View dividerView) {
+        deletedTodos.push(new DeletedTodo(item, currentTodoIndex(item.id, index)));
+        updateMenuButtons();
+        TodoStore.remove(this, item.id);
+        if (todoList == null || rowView == null || rowView.getParent() != todoList) {
+            refreshTodos();
+            return;
+        }
+        if (dividerView != null && dividerView.getParent() == todoList) {
+            todoList.removeView(dividerView);
+        }
+        todoList.removeView(rowView);
+        List<TodoItem> items = TodoStore.load(this);
+        lastRenderedTodoKey = TodoCodec.encode(items) + "|" + todosLocked + "|" + editingTodoId;
+        updateTopTodoDividerVisibility(!items.isEmpty() && inputBlock.getVisibility() != View.VISIBLE);
+        if (items.isEmpty()) {
+            refreshTodos();
+        }
+    }
+
+    private int currentTodoIndex(long itemId, int fallbackIndex) {
+        List<TodoItem> items = TodoStore.load(this);
+        for (int i = 0; i < items.size(); i++) {
+            if (items.get(i).id == itemId) {
+                return i;
+            }
+        }
+        return fallbackIndex;
+    }
+
+    private void animateDeleteTodo(TodoItem item, int index, View rowView, float swipeDirection) {
         rowView.setEnabled(false);
         int rowPosition = todoList.indexOfChild(rowView);
         View dividerView = rowPosition >= 0 && rowPosition + 1 < todoList.getChildCount()
@@ -1496,8 +1564,9 @@ public class LockActivity extends Activity {
         int rowHeight = rowView.getHeight() > 0 ? rowView.getHeight() : dp(54);
         int dividerHeight = dividerView != null && dividerView.getHeight() > 0 ? dividerView.getHeight() : dp(24);
 
+        float direction = swipeDirection < 0f ? -1f : 1f;
         rowView.animate()
-                .translationX(rowView.getWidth() * 0.8f)
+                .translationX(rowView.getWidth() * 0.8f * direction)
                 .alpha(0f)
                 .setDuration(150)
                 .start();
@@ -1522,7 +1591,7 @@ public class LockActivity extends Activity {
         collapse.addListener(new android.animation.AnimatorListenerAdapter() {
             @Override
             public void onAnimationEnd(android.animation.Animator animation) {
-                deleteTodo(item, index);
+                deleteTodoAfterRowAnimation(item, index, rowView, dividerView);
             }
         });
         collapse.start();
@@ -2037,6 +2106,20 @@ public class LockActivity extends Activity {
         overridePendingTransition(0, 0);
     }
 
+    private void closeForScreenOff() {
+        DiagnosticLog.record(this, "NudgeLockActivity", "close for screen off");
+        if (inputBlock != null && inputBlock.getVisibility() == View.VISIBLE) {
+            saveInputDraft();
+        }
+        stopSpeechRecognition();
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            finishAndRemoveTask();
+        } else {
+            finish();
+        }
+        overridePendingTransition(0, 0);
+    }
+
     private TextView text(String value, int sp, int color, boolean bold) {
         TextView view = new TextView(this);
         view.setText(value);
@@ -2068,6 +2151,26 @@ public class LockActivity extends Activity {
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 0
         );
+    }
+
+    private int lockRootTopPaddingDp(boolean compactClockLayout) {
+        return compactClockLayout ? 34 : 72;
+    }
+
+    private int plusTouchRowHeightDp(boolean compactClockLayout) {
+        return compactClockLayout ? 70 : 82;
+    }
+
+    private int plusTouchTranslationDp(boolean compactClockLayout) {
+        return compactClockLayout ? 2 : 0;
+    }
+
+    private int todoListTopPaddingDp(boolean compactClockLayout) {
+        return compactClockLayout ? 0 : 11;
+    }
+
+    private int todoListTranslationDp(boolean compactClockLayout) {
+        return compactClockLayout ? -1 : 0;
     }
 
     private LinearLayout.LayoutParams narrowParams() {
@@ -2401,8 +2504,8 @@ public class LockActivity extends Activity {
                     if (swiping) {
                         rowView.setTranslationX(moveDx * 0.82f);
                         rowView.setAlpha(1f);
-                        actionHint.setText(getString(R.string.delete));
-                        actionHint.setTextColor(0xFFFFB3A8);
+                        actionHint.setText("");
+                        actionHint.setTextColor(0x00FFFFFF);
                         rowView.setBackgroundColor(0x22C24132);
                     }
                     return true;
@@ -2433,9 +2536,9 @@ public class LockActivity extends Activity {
                         }
                         return true;
                     }
-                    actionHint.setText(getString(R.string.delete));
-                    actionHint.setTextColor(0xFFFFB3A8);
-                    animateDeleteTodo(item, index, rowView);
+                    actionHint.setText("");
+                    actionHint.setTextColor(0x00FFFFFF);
+                    animateDeleteTodo(item, index, rowView, dx);
                     return true;
                 case MotionEvent.ACTION_CANCEL:
                     view.getParent().requestDisallowInterceptTouchEvent(false);
