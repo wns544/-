@@ -75,4 +75,25 @@
     <string name="cloud_server_summary">Server %1$d · %2$s</string>
     <string name="firebase_setup_required_title">Firebase setup required</string>
     <string name="firebase_setup_required_body">Register the Android app (com.wns544.nudgescreen) in Firebase Console, add app/google-services.json, and enable Google sign-in.</string>
+    <string name="quick_memo_short_label">Quick memo</string>
+    <string name="quick_memo_long_label">Nudge Screen quick memo</string>
+    <string name="quick_memo_widget_description">Add a quick memo to Nudge Screen.</string>
+    <string name="quick_memo_hint">Type a memo to add</string>
+    <string name="quick_memo_empty">There is no memo to save.</string>
+    <string name="quick_memo_added">Added to Nudge Screen.</string>
+    <string name="speech_unavailable">Speech recognition is not available on this device.</string>
+    <string name="quick_memo_voice_short_label">Voice memo</string>
+    <string name="quick_memo_voice_long_label">Nudge Screen voice memo</string>
+    <string name="shortcut_nudge_memo_short_label">Nudge memo</string>
+    <string name="shortcut_nudge_memo_long_label">Make a Nudge Screen memo</string>
+    <string name="shortcut_memo_short_label">Memo</string>
+    <string name="shortcut_memo_long_label">Make a memo</string>
+    <string name="shortcut_todo_memo_short_label">Todo memo</string>
+    <string name="shortcut_todo_memo_long_label">Make a todo memo</string>
+    <string name="shortcut_memo_please_short_label">Take memo</string>
+    <string name="shortcut_memo_please_long_label">Take a Nudge Screen memo</string>
+    <string name="shortcut_add_memo_short_label">Add memo</string>
+    <string name="shortcut_add_memo_long_label">Add a Nudge Screen memo</string>
+    <string name="shortcut_leave_memo_short_label">Leave memo</string>
+    <string name="shortcut_leave_memo_long_label">Leave a Nudge Screen memo</string>
 </resources>

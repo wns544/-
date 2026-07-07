@@ -63,12 +63,14 @@ import java.util.Locale;
 
 public class LockActivity extends Activity {
     static final String EXTRA_TURN_SCREEN_ON = "com.example.screenlocktodo.TURN_SCREEN_ON";
+    static final String EXTRA_IDLE_SCREEN_OFF = "com.example.screenlocktodo.IDLE_SCREEN_OFF";
     static final String ACTION_CLOSE_FOR_SCREEN_OFF = "com.example.screenlocktodo.CLOSE_FOR_SCREEN_OFF";
     private static volatile boolean showing;
     private static volatile boolean visible;
     private static volatile long lastVisibleAt;
     private static final long TODO_DOUBLE_TAP_MS = 420L;
     private static final long CURTAIN_DOUBLE_TAP_MS = 360L;
+    private static final long IDLE_DISMISS_DELAY_MS = 10_000L;
     private static final long INPUT_DRAFT_KEEP_MS = 60_000L;
 
     private LinearLayout todoList;
@@ -87,6 +89,7 @@ public class LockActivity extends Activity {
     private UndoButtonView undoButton;
     private TextView menuButton;
     private LinearLayout menuPanel;
+    private ScrollView lockScroll;
     private LockToggleView lockButton;
     private ImageView wallpaperBackground;
     private View curtainBackground;
@@ -104,6 +107,9 @@ public class LockActivity extends Activity {
     private int draggingTodoMoveOffset;
     private View draggingPreviousDivider;
     private View draggingNextDivider;
+    private float lastDragRawY;
+    private int autoScrollVelocity;
+    private boolean autoScrollActive;
     private boolean firstTodoRender = true;
     private boolean clockReceiverRegistered;
     private boolean keyboardVisible;
@@ -116,19 +122,39 @@ public class LockActivity extends Activity {
     private ValueAnimator inputBlockHeightAnimator;
     private final Handler uiHandler = new Handler(Looper.getMainLooper());
     private boolean closeForScreenOffReceiverRegistered;
+    private final Runnable idleDismissRunnable = () -> {
+        if (!isFinishing() && visible) {
+            DiagnosticLog.record(this, "NudgeLockActivity", "idle dismiss after " + IDLE_DISMISS_DELAY_MS + "ms");
+            closeForIdleTimeout();
+        }
+    };
     
     private SpeechRecognizer speechRecognizer;
     private ImageView micButton;
     private boolean isListening = false;
     private boolean speechListeningRequested = false;
     private boolean speechRestartScheduled = false;
+    private boolean speechStopExpected = false;
+    private boolean speechIntroToastShown = false;
     private int speechInsertStart = -1;
     private static final int REQUEST_RECORD_AUDIO_PERMISSION = 200;
     private static final long SPEECH_RESTART_DELAY_MS = 260L;
+    private static final int MIC_LISTENING_COLOR = 0xFFF04452;
     private final Runnable speechRestartRunnable = () -> {
         speechRestartScheduled = false;
         if (speechListeningRequested && !isFinishing()) {
             startSpeechRecognition();
+        }
+    };
+    private final Runnable autoScrollRunnable = new Runnable() {
+        @Override
+        public void run() {
+            if (!autoScrollActive || lockScroll == null || draggingTodoRow == null) {
+                return;
+            }
+            lockScroll.smoothScrollBy(0, autoScrollVelocity);
+            updateTodoDrag(lastDragRawY);
+            uiHandler.postDelayed(this, 16L);
         }
     };
     private final BroadcastReceiver clockReceiver = new BroadcastReceiver() {
@@ -154,11 +180,15 @@ public class LockActivity extends Activity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_PORTRAIT);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            setRecentsScreenshotEnabled(false);
+        }
         showing = true;
         configureLockWindow();
         super.onCreate(savedInstanceState);
         todosLocked = AppSettings.todosLocked(this);
-        DiagnosticLog.recordAppState(this, "lock activity onCreate turnScreenOn=" + getIntent().getBooleanExtra(EXTRA_TURN_SCREEN_ON, true));
+        DiagnosticLog.recordAppState(this, "lock activity onCreate turnScreenOn=" + getIntent().getBooleanExtra(EXTRA_TURN_SCREEN_ON, true)
+                + " idleScreenOff=" + shouldEnforceIdleScreenOff());
         LockMonitorService.cancelLockNotification(this);
         registerCloseForScreenOffReceiver();
         registerBackHandler();
@@ -208,13 +238,19 @@ public class LockActivity extends Activity {
         showing = true;
         super.onNewIntent(intent);
         setIntent(intent);
-        DiagnosticLog.recordAppState(this, "lock activity onNewIntent turnScreenOn=" + intent.getBooleanExtra(EXTRA_TURN_SCREEN_ON, true));
+        DiagnosticLog.recordAppState(this, "lock activity onNewIntent turnScreenOn=" + intent.getBooleanExtra(EXTRA_TURN_SCREEN_ON, true)
+                + " idleScreenOff=" + shouldEnforceIdleScreenOff(intent));
         todosLocked = AppSettings.todosLocked(this);
         configureLockWindow();
         LockMonitorService.cancelLockNotification(this);
         updateWallpaperBackground(true);
         updateClock();
         refreshTodos();
+        if (shouldEnforceIdleScreenOff()) {
+            scheduleIdleDismiss();
+        } else {
+            cancelIdleDismiss();
+        }
     }
 
     @Override
@@ -229,12 +265,16 @@ public class LockActivity extends Activity {
         updateClock();
         registerClockReceiver();
         refreshTodos();
+        if (shouldEnforceIdleScreenOff()) {
+            scheduleIdleDismiss();
+        }
     }
 
     @Override
     protected void onPause() {
         DiagnosticLog.record(this, "NudgeLockActivity", "onPause");
         visible = false;
+        cancelIdleDismiss();
         if (isListening) {
             stopSpeechRecognition();
         }
@@ -246,6 +286,14 @@ public class LockActivity extends Activity {
     protected void onStop() {
         DiagnosticLog.record(this, "NudgeLockActivity", "onStop finishing=" + isFinishing());
         super.onStop();
+    }
+
+    @Override
+    public void onUserInteraction() {
+        super.onUserInteraction();
+        if (shouldEnforceIdleScreenOff()) {
+            scheduleIdleDismiss();
+        }
     }
 
     @Override
@@ -276,6 +324,7 @@ public class LockActivity extends Activity {
                     return;
                 }
             }
+            speechIntroToastShown = false;
             startSpeechRecognition();
         }
     }
@@ -283,6 +332,7 @@ public class LockActivity extends Activity {
     private void startSpeechRecognition() {
         speechListeningRequested = true;
         speechRestartScheduled = false;
+        speechStopExpected = false;
         if (!SpeechRecognizer.isRecognitionAvailable(this)) {
             speechListeningRequested = false;
             Toast.makeText(this, "이 기기에서 음성 인식을 사용할 수 없습니다.", Toast.LENGTH_SHORT).show();
@@ -296,6 +346,10 @@ public class LockActivity extends Activity {
                     isListening = true;
                     speechInsertStart = input == null ? -1 : input.getSelectionStart();
                     updateMicListening(true);
+                    if (speechIntroToastShown) {
+                        return;
+                    }
+                    speechIntroToastShown = true;
                     Toast.makeText(LockActivity.this, "말하면 할 일에 입력됩니다.", Toast.LENGTH_SHORT).show();
                 }
                 @Override
@@ -315,6 +369,12 @@ public class LockActivity extends Activity {
                 public void onError(int error) {
                     isListening = false;
                     speechInsertStart = -1;
+                    if (speechStopExpected) {
+                        speechStopExpected = false;
+                        speechListeningRequested = false;
+                        updateMicListening(false);
+                        return;
+                    }
                     if (speechListeningRequested && shouldRestartSpeechAfterError(error)) {
                         updateMicListening(true);
                         scheduleSpeechRestart();
@@ -403,6 +463,7 @@ public class LockActivity extends Activity {
     }
 
     private void stopSpeechRecognition() {
+        speechStopExpected = true;
         speechListeningRequested = false;
         speechRestartScheduled = false;
         uiHandler.removeCallbacks(speechRestartRunnable);
@@ -420,7 +481,7 @@ public class LockActivity extends Activity {
         }
         micButton.setAlpha(listening ? 1.0f : 0.6f);
         if (listening) {
-            micButton.setColorFilter(0xFF5F8F73);
+            micButton.setColorFilter(MIC_LISTENING_COLOR);
         } else {
             micButton.clearColorFilter();
         }
@@ -709,10 +770,10 @@ public class LockActivity extends Activity {
 
         updateMenuButtons();
 
-        ScrollView scroll = new ScrollView(this);
-        scroll.setFillViewport(true);
-        scroll.setBackgroundColor(0x00000000);
-        curtainContent.addView(scroll, new FrameLayout.LayoutParams(
+        lockScroll = new ScrollView(this);
+        lockScroll.setFillViewport(true);
+        lockScroll.setBackgroundColor(0x00000000);
+        curtainContent.addView(lockScroll, new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT,
                 FrameLayout.LayoutParams.MATCH_PARENT
         ));
@@ -722,7 +783,7 @@ public class LockActivity extends Activity {
         root.setGravity(Gravity.CENTER_HORIZONTAL);
         boolean compactClockLayout = AppSettings.compactLockClockLayout(this);
         root.setPadding(dp(18), dp(lockRootTopPaddingDp(compactClockLayout)), dp(18), dp(32));
-        scroll.addView(root, new ScrollView.LayoutParams(
+        lockScroll.addView(root, new ScrollView.LayoutParams(
                 ScrollView.LayoutParams.MATCH_PARENT,
                 ScrollView.LayoutParams.WRAP_CONTENT
         ));
@@ -1088,12 +1149,14 @@ public class LockActivity extends Activity {
         if (draggingTodoRow == null || draggingTodoIndex < 0) {
             return;
         }
+        lastDragRawY = rawY;
         float draggedCenterY = rawY + draggingTouchToCenterOffset;
         float translationY = draggedCenterY - draggingTodoStartCenterY;
         draggingTodoRow.setTranslationY(translationY);
 
         int targetIndex = dragTargetIndex(draggedCenterY);
         updateReorderPreview(targetIndex);
+        updateDragAutoScroll(rawY);
     }
 
     private void finishTodoDrag(TodoItem item) {
@@ -1141,6 +1204,45 @@ public class LockActivity extends Activity {
         }
     }
 
+    private void updateDragAutoScroll(float rawY) {
+        if (lockScroll == null) {
+            stopDragAutoScroll();
+            return;
+        }
+        int[] location = new int[2];
+        lockScroll.getLocationOnScreen(location);
+        int top = location[1];
+        int bottom = top + lockScroll.getHeight();
+        int edge = dp(96);
+        int maxVelocity = dp(18);
+        int velocity = 0;
+        if (rawY < top + edge) {
+            float ratio = Math.min(1f, Math.max(0f, (top + edge - rawY) / edge));
+            velocity = -Math.max(dp(3), Math.round(maxVelocity * ratio));
+        } else if (rawY > bottom - edge) {
+            float ratio = Math.min(1f, Math.max(0f, (rawY - (bottom - edge)) / edge));
+            velocity = Math.max(dp(3), Math.round(maxVelocity * ratio));
+        }
+        if (velocity == 0) {
+            stopDragAutoScroll();
+            return;
+        }
+        autoScrollVelocity = velocity;
+        if (!autoScrollActive) {
+            autoScrollActive = true;
+            uiHandler.post(autoScrollRunnable);
+        }
+    }
+
+    private void stopDragAutoScroll() {
+        autoScrollVelocity = 0;
+        if (!autoScrollActive) {
+            return;
+        }
+        autoScrollActive = false;
+        uiHandler.removeCallbacks(autoScrollRunnable);
+    }
+
     private void cancelTodoDrag() {
         if (draggingTodoRow != null) {
             draggingTodoRow.animate()
@@ -1166,6 +1268,8 @@ public class LockActivity extends Activity {
         draggingTodoMoveOffset = 0;
         draggingPreviousDivider = null;
         draggingNextDivider = null;
+        lastDragRawY = 0f;
+        stopDragAutoScroll();
     }
 
     private void hideDraggedTodoDividers(View row) {
@@ -2118,6 +2222,53 @@ public class LockActivity extends Activity {
             finish();
         }
         overridePendingTransition(0, 0);
+    }
+
+    private void scheduleIdleDismiss() {
+        uiHandler.removeCallbacks(idleDismissRunnable);
+        if (shouldEnforceIdleScreenOff() && visible && !isFinishing()) {
+            uiHandler.postDelayed(idleDismissRunnable, IDLE_DISMISS_DELAY_MS);
+        }
+    }
+
+    private void cancelIdleDismiss() {
+        uiHandler.removeCallbacks(idleDismissRunnable);
+    }
+
+    private boolean shouldEnforceIdleScreenOff() {
+        return shouldEnforceIdleScreenOff(getIntent());
+    }
+
+    private boolean shouldEnforceIdleScreenOff(Intent intent) {
+        return intent != null && intent.getBooleanExtra(EXTRA_IDLE_SCREEN_OFF, false);
+    }
+
+    private void closeForIdleTimeout() {
+        if (inputBlock != null && inputBlock.getVisibility() == View.VISIBLE) {
+            saveInputDraft();
+        }
+        stopSpeechRecognition();
+        if (lockDeviceNow("idle timeout")) {
+            return;
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            finishAndRemoveTask();
+        } else {
+            finish();
+        }
+        overridePendingTransition(0, 0);
+    }
+
+    private boolean lockDeviceNow(String reason) {
+        DevicePolicyManager devicePolicyManager = (DevicePolicyManager) getSystemService(DEVICE_POLICY_SERVICE);
+        ComponentName admin = new ComponentName(this, NudgeDeviceAdminReceiver.class);
+        if (devicePolicyManager != null && devicePolicyManager.isAdminActive(admin)) {
+            DiagnosticLog.record(this, "NudgeLockActivity", "lock device now: " + reason);
+            devicePolicyManager.lockNow();
+            return true;
+        }
+        DiagnosticLog.record(this, "NudgeLockActivity", "lock device skipped; admin inactive: " + reason);
+        return false;
     }
 
     private TextView text(String value, int sp, int color, boolean bold) {

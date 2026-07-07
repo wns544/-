@@ -1,0 +1,114 @@
+<?xml version="1.0" encoding="utf-8"?>
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut
+        android:enabled="true"
+        android:icon="@mipmap/ic_launcher"
+        android:shortcutDisabledMessage="@string/quick_memo_short_label"
+        android:shortcutId="quick_memo"
+        android:shortcutLongLabel="@string/quick_memo_long_label"
+        android:shortcutShortLabel="@string/quick_memo_short_label">
+        <intent
+            android:action="com.example.screenlocktodo.QUICK_MEMO"
+            android:targetClass="com.example.screenlocktodo.QuickMemoActivity"
+            android:targetPackage="com.wns544.nudgescreen" />
+        <categories android:name="android.shortcut.conversation" />
+    </shortcut>
+    <shortcut
+        android:enabled="true"
+        android:icon="@drawable/ic_mic"
+        android:shortcutDisabledMessage="@string/quick_memo_short_label"
+        android:shortcutId="quick_voice_memo"
+        android:shortcutLongLabel="@string/quick_memo_voice_long_label"
+        android:shortcutShortLabel="@string/quick_memo_voice_short_label">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:data="nudge://quick-memo?voice=1"
+            android:targetClass="com.example.screenlocktodo.QuickMemoActivity"
+            android:targetPackage="com.wns544.nudgescreen" />
+        <categories android:name="android.shortcut.conversation" />
+    </shortcut>
+    <shortcut
+        android:enabled="true"
+        android:icon="@drawable/ic_mic"
+        android:shortcutDisabledMessage="@string/quick_memo_short_label"
+        android:shortcutId="nudge_memo_command"
+        android:shortcutLongLabel="@string/shortcut_nudge_memo_long_label"
+        android:shortcutShortLabel="@string/shortcut_nudge_memo_short_label">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:data="nudge://quick-memo?voice=1"
+            android:targetClass="com.example.screenlocktodo.QuickMemoActivity"
+            android:targetPackage="com.wns544.nudgescreen" />
+        <categories android:name="android.shortcut.conversation" />
+    </shortcut>
+    <shortcut
+        android:enabled="true"
+        android:icon="@drawable/ic_mic"
+        android:shortcutDisabledMessage="@string/quick_memo_short_label"
+        android:shortcutId="memo_command"
+        android:shortcutLongLabel="@string/shortcut_memo_long_label"
+        android:shortcutShortLabel="@string/shortcut_memo_short_label">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:data="nudge://quick-memo?voice=1"
+            android:targetClass="com.example.screenlocktodo.QuickMemoActivity"
+            android:targetPackage="com.wns544.nudgescreen" />
+        <categories android:name="android.shortcut.conversation" />
+    </shortcut>
+    <shortcut
+        android:enabled="true"
+        android:icon="@drawable/ic_mic"
+        android:shortcutDisabledMessage="@string/quick_memo_short_label"
+        android:shortcutId="todo_memo_command"
+        android:shortcutLongLabel="@string/shortcut_todo_memo_long_label"
+        android:shortcutShortLabel="@string/shortcut_todo_memo_short_label">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:data="nudge://quick-memo?voice=1"
+            android:targetClass="com.example.screenlocktodo.QuickMemoActivity"
+            android:targetPackage="com.wns544.nudgescreen" />
+        <categories android:name="android.shortcut.conversation" />
+    </shortcut>
+    <shortcut
+        android:enabled="true"
+        android:icon="@drawable/ic_mic"
+        android:shortcutDisabledMessage="@string/quick_memo_short_label"
+        android:shortcutId="memo_please_command"
+        android:shortcutLongLabel="@string/shortcut_memo_please_long_label"
+        android:shortcutShortLabel="@string/shortcut_memo_please_short_label">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:data="nudge://quick-memo?voice=1"
+            android:targetClass="com.example.screenlocktodo.QuickMemoActivity"
+            android:targetPackage="com.wns544.nudgescreen" />
+        <categories android:name="android.shortcut.conversation" />
+    </shortcut>
+    <shortcut
+        android:enabled="true"
+        android:icon="@drawable/ic_mic"
+        android:shortcutDisabledMessage="@string/quick_memo_short_label"
+        android:shortcutId="add_memo_command"
+        android:shortcutLongLabel="@string/shortcut_add_memo_long_label"
+        android:shortcutShortLabel="@string/shortcut_add_memo_short_label">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:data="nudge://quick-memo?voice=1"
+            android:targetClass="com.example.screenlocktodo.QuickMemoActivity"
+            android:targetPackage="com.wns544.nudgescreen" />
+        <categories android:name="android.shortcut.conversation" />
+    </shortcut>
+    <shortcut
+        android:enabled="true"
+        android:icon="@drawable/ic_mic"
+        android:shortcutDisabledMessage="@string/quick_memo_short_label"
+        android:shortcutId="leave_memo_command"
+        android:shortcutLongLabel="@string/shortcut_leave_memo_long_label"
+        android:shortcutShortLabel="@string/shortcut_leave_memo_short_label">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:data="nudge://quick-memo?voice=1"
+            android:targetClass="com.example.screenlocktodo.QuickMemoActivity"
+            android:targetPackage="com.wns544.nudgescreen" />
+        <categories android:name="android.shortcut.conversation" />
+    </shortcut>
+</shortcuts>

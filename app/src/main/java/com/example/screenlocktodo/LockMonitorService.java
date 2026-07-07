@@ -503,6 +503,7 @@ public class LockMonitorService extends Service {
 
         Intent lockIntent = new Intent(context, LockActivity.class)
                 .putExtra(LockActivity.EXTRA_TURN_SCREEN_ON, wakeDisplay)
+                .putExtra(LockActivity.EXTRA_IDLE_SCREEN_OFF, wakeDisplay)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK
                         | Intent.FLAG_ACTIVITY_SINGLE_TOP
                         | Intent.FLAG_ACTIVITY_NO_ANIMATION
@@ -517,7 +518,8 @@ public class LockMonitorService extends Service {
             wakeLock.acquire(3000);
         }
 
-        if (allowNotificationFallback && canUseFullScreenIntent(context)) {
+        boolean allowWakeFallback = wakeDisplay && allowNotificationFallback;
+        if (allowWakeFallback && canUseFullScreenIntent(context)) {
             DiagnosticLog.record(context, TAG, "using full-screen notification as primary launch id=" + attemptId);
             postFullScreenLockNotification(context, lockIntent, attemptId);
             scheduleLockVisibilityCheck(context.getApplicationContext(), attemptId, source, attemptAt, lockIntent, false);
@@ -525,7 +527,7 @@ public class LockMonitorService extends Service {
         }
 
         launchLockActivity(context, lockIntent);
-        scheduleLockVisibilityCheck(context.getApplicationContext(), attemptId, source, attemptAt, lockIntent, allowNotificationFallback);
+        scheduleLockVisibilityCheck(context.getApplicationContext(), attemptId, source, attemptAt, lockIntent, allowWakeFallback);
     }
 
     private void postFullScreenLockNotification(Context context, Intent lockIntent, long attemptId) {

@@ -178,6 +178,9 @@ public class MainActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_PORTRAIT);
         super.onCreate(savedInstanceState);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            setRecentsScreenshotEnabled(false);
+        }
         configureMainWindow();
         if (!requestNotificationPermission()) {
             requestRecordAudioPermission();
@@ -734,6 +737,8 @@ public class MainActivity extends Activity {
             populateLanguageDrawerPage(drawerMenuContent);
         } else if ("background".equals(page)) {
             populateBackgroundDrawerPage(drawerMenuContent);
+        } else if ("automation".equals(page)) {
+            populateAutomationDrawerPage(drawerMenuContent);
         } else if ("trouble".equals(page)) {
             populateTroubleDrawerPage(drawerMenuContent);
         } else {
@@ -747,6 +752,7 @@ public class MainActivity extends Activity {
         if ("permissions".equals(page)) return "권한과 배터리";
         if ("language".equals(page)) return "언어와 표시";
         if ("background".equals(page)) return "잠금화면 배경";
+        if ("automation".equals(page)) return "자동화 연동";
         if ("trouble".equals(page)) return "문제 해결";
         return getString(R.string.settings);
     }
@@ -757,12 +763,14 @@ public class MainActivity extends Activity {
         if ("permissions".equals(page)) return "알림, 전체 화면, 배터리";
         if ("language".equals(page)) return currentLanguageName() + " · 초록 포인트";
         if ("background".equals(page)) return "사진 선택과 시스템 배경";
+        if ("automation".equals(page)) return "빅스비, Tasker, 딥링크";
         if ("trouble".equals(page)) return "진단 로그와 도움말";
         return getString(R.string.app_name);
     }
 
     private void populateDrawerHome(LinearLayout content) {
         content.addView(categoryRow("음성 입력", currentSpeechLanguageName() + " · 마이크 버튼", v -> showDrawerPage("voice")));
+        content.addView(categoryRow("자동화 연동", "빅스비, Tasker, 딥링크", v -> showDrawerPage("automation")));
         content.addView(categoryRow("서버 동기화", syncHomeSummary(), v -> showDrawerPage("sync")));
         content.addView(categoryRow("권한과 배터리", "알림, 전체 화면, 배터리 제한", v -> showDrawerPage("permissions")));
         content.addView(categoryRow("언어와 표시", currentLanguageName() + " · 초록 포인트", v -> showDrawerPage("language")));
@@ -787,6 +795,58 @@ public class MainActivity extends Activity {
             closeDrawer();
             startActivity(new Intent(this, LockActivity.class));
         }, false));
+    }
+
+    private void populateAutomationDrawerPage(LinearLayout content) {
+        content.addView(detailRow("바로메모 열기", "nudge://quick-memo", v -> openQuickMemoUri("nudge://quick-memo"), false));
+        content.addView(detailRow("음성 바로메모", "nudge://quick-memo?voice=1", v -> openQuickMemoUri("nudge://quick-memo?voice=1"), false));
+        content.addView(detailRow("텍스트 미리 채우기", "text 파라미터로 입력칸 채우기", v -> {
+            copyAutomationText("nudge://quick-memo?text=우유%20사기");
+            showAutomationGuideDialog();
+        }, false));
+        content.addView(detailRow("텍스트 바로 저장", "save=1 파라미터로 즉시 저장", v -> {
+            copyAutomationText("nudge://quick-memo?text=우유%20사기&save=1");
+            showAutomationGuideDialog();
+        }, false));
+        content.addView(detailRow("자동화 호출법", "빅스비, Tasker, MacroDroid에서 사용", v -> showAutomationGuideDialog(), false));
+    }
+
+    private void openQuickMemoUri(String uri) {
+        closeDrawer();
+        Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(uri))
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        startActivity(intent);
+    }
+
+    private void copyAutomationText(String text) {
+        ClipboardManager clipboard = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+        if (clipboard != null) {
+            clipboard.setPrimaryClip(ClipData.newPlainText("Nudge Screen automation", text));
+            Toast.makeText(this, "호출법을 복사했습니다.", Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    private void showAutomationGuideDialog() {
+        String guide = "바로메모 열기\n"
+                + "nudge://quick-memo\n\n"
+                + "음성 바로메모\n"
+                + "nudge://quick-memo?voice=1\n\n"
+                + "텍스트 미리 채우기\n"
+                + "nudge://quick-memo?text=우유%20사기\n\n"
+                + "텍스트 바로 저장\n"
+                + "nudge://quick-memo?text=우유%20사기&save=1\n\n"
+                + "Intent action\n"
+                + "com.wns544.nudgescreen.QUICK_MEMO\n\n"
+                + "Extras\n"
+                + "com.wns544.nudgescreen.extra.MEMO_TEXT\n"
+                + "com.wns544.nudgescreen.extra.AUTO_SAVE\n"
+                + "com.wns544.nudgescreen.extra.START_VOICE";
+        new AlertDialog.Builder(this)
+                .setTitle("자동화 연동")
+                .setMessage(guide)
+                .setPositiveButton("복사", (dialog, which) -> copyAutomationText(guide))
+                .setNegativeButton(getString(R.string.close), null)
+                .show();
     }
 
     private void populateSyncDrawerPage(LinearLayout content) {

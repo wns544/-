@@ -75,4 +75,25 @@
     <string name="cloud_server_summary">伺服器 %1$d 筆 · %2$s</string>
     <string name="firebase_setup_required_title">需要設定 Firebase</string>
     <string name="firebase_setup_required_body">請在 Firebase Console 註冊 Android 應用程式 (com.wns544.nudgescreen)，加入 app/google-services.json，並啟用 Google 登入。</string>
+    <string name="quick_memo_short_label">快速備忘</string>
+    <string name="quick_memo_long_label">Nudge Screen 快速備忘</string>
+    <string name="quick_memo_widget_description">快速新增待辦備忘。</string>
+    <string name="quick_memo_hint">輸入要新增的備忘</string>
+    <string name="quick_memo_empty">沒有可儲存的備忘。</string>
+    <string name="quick_memo_added">已新增至 Nudge Screen。</string>
+    <string name="speech_unavailable">此裝置無法使用語音辨識。</string>
+    <string name="quick_memo_voice_short_label">語音備忘</string>
+    <string name="quick_memo_voice_long_label">Nudge Screen 語音備忘</string>
+    <string name="shortcut_nudge_memo_short_label">Nudge 備忘</string>
+    <string name="shortcut_nudge_memo_long_label">建立 Nudge Screen 備忘</string>
+    <string name="shortcut_memo_short_label">備忘</string>
+    <string name="shortcut_memo_long_label">建立備忘</string>
+    <string name="shortcut_todo_memo_short_label">待辦備忘</string>
+    <string name="shortcut_todo_memo_long_label">建立待辦備忘</string>
+    <string name="shortcut_memo_please_short_label">記備忘</string>
+    <string name="shortcut_memo_please_long_label">建立 Nudge Screen 備忘</string>
+    <string name="shortcut_add_memo_short_label">新增備忘</string>
+    <string name="shortcut_add_memo_long_label">新增 Nudge Screen 備忘</string>
+    <string name="shortcut_leave_memo_short_label">留下備忘</string>
+    <string name="shortcut_leave_memo_long_label">留下 Nudge Screen 備忘</string>
 </resources>

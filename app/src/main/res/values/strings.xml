@@ -75,4 +75,25 @@
     <string name="cloud_server_summary">서버 %1$d개 · %2$s</string>
     <string name="firebase_setup_required_title">Firebase 설정이 필요합니다</string>
     <string name="firebase_setup_required_body">Firebase Console에서 Android 앱(com.wns544.nudgescreen)을 등록하고 app/google-services.json을 추가한 뒤 Google 로그인을 활성화해 주세요.</string>
+    <string name="quick_memo_short_label">바로메모</string>
+    <string name="quick_memo_long_label">잠깐 할 일 바로메모</string>
+    <string name="quick_memo_widget_description">잠깐 할 일에 바로 메모를 추가합니다.</string>
+    <string name="quick_memo_hint">메모할 내용을 입력하세요</string>
+    <string name="quick_memo_empty">저장할 메모가 없습니다.</string>
+    <string name="quick_memo_added">잠깐 할 일에 추가했습니다.</string>
+    <string name="speech_unavailable">이 기기에서 음성 인식을 사용할 수 없습니다.</string>
+    <string name="quick_memo_voice_short_label">음성메모</string>
+    <string name="quick_memo_voice_long_label">잠깐 할 일 음성메모</string>
+    <string name="shortcut_nudge_memo_short_label">잠깐할일 메모</string>
+    <string name="shortcut_nudge_memo_long_label">잠깐할일 메모하기</string>
+    <string name="shortcut_memo_short_label">메모하기</string>
+    <string name="shortcut_memo_long_label">잠깐 할 일에 메모하기</string>
+    <string name="shortcut_todo_memo_short_label">할 일 메모</string>
+    <string name="shortcut_todo_memo_long_label">잠깐 할 일 메모</string>
+    <string name="shortcut_memo_please_short_label">메모해줘</string>
+    <string name="shortcut_memo_please_long_label">잠깐 할 일에 메모해줘</string>
+    <string name="shortcut_add_memo_short_label">메모 추가</string>
+    <string name="shortcut_add_memo_long_label">잠깐 할 일 메모 추가</string>
+    <string name="shortcut_leave_memo_short_label">메모 남기기</string>
+    <string name="shortcut_leave_memo_long_label">잠깐 할 일에 메모 남기기</string>
 </resources>

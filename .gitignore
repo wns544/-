@@ -11,3 +11,5 @@ keystore.properties
 .idea/
 tmp-*
 restore-memos.txt
+pc-app/node_modules/
+pc-app/dist/

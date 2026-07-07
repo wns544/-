@@ -18,8 +18,8 @@ android {
         applicationId "com.wns544.nudgescreen"
         minSdk 26
         targetSdk 36
-        versionCode 42
-        versionName "1.0.42"
+        versionCode 45
+        versionName "1.0.45"
     }
 
     signingConfigs {
