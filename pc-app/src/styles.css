@@ -1,0 +1,155 @@
+:root {
+  color-scheme: light;
+  font-family: "Segoe UI", "Malgun Gothic", sans-serif;
+  background: #f4f5f7;
+  color: #191f28;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: #f4f5f7;
+}
+
+body.widget {
+  background: transparent;
+}
+
+.app {
+  min-height: 100vh;
+  padding: 22px;
+}
+
+.widget .app {
+  min-height: 100vh;
+  border-radius: 24px;
+  background: rgba(244, 245, 247, 0.96);
+  box-shadow: 0 18px 50px rgba(25, 31, 40, 0.18);
+}
+
+.topbar {
+  -webkit-app-region: drag;
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+  margin-bottom: 18px;
+}
+
+h1 {
+  margin: 0;
+  font-size: 28px;
+}
+
+#status {
+  margin: 5px 0 0;
+  color: #8b95a1;
+  font-size: 13px;
+}
+
+button,
+textarea {
+  font: inherit;
+}
+
+button {
+  border: 0;
+  border-radius: 14px;
+  padding: 10px 14px;
+  cursor: pointer;
+  background: #e8ecef;
+  color: #191f28;
+}
+
+.window-actions {
+  -webkit-app-region: no-drag;
+  display: flex;
+  gap: 6px;
+}
+
+.ghost {
+  min-width: 34px;
+  height: 34px;
+  padding: 0;
+  color: #8b95a1;
+  background: transparent;
+}
+
+.primary {
+  background: #5f8f73;
+  color: white;
+  font-weight: 700;
+}
+
+.card {
+  padding: 16px;
+  border-radius: 22px;
+  background: white;
+  box-shadow: 0 8px 24px rgba(25, 31, 40, 0.06);
+}
+
+.stack {
+  display: grid;
+  gap: 12px;
+}
+
+.hidden {
+  display: none !important;
+}
+
+.add-card {
+  display: grid;
+  gap: 10px;
+}
+
+textarea {
+  width: 100%;
+  min-height: 86px;
+  resize: vertical;
+  border: 0;
+  outline: 0;
+  padding: 12px;
+  border-radius: 16px;
+  background: #f4f5f7;
+  color: #191f28;
+}
+
+.toolbar {
+  display: flex;
+  gap: 8px;
+}
+
+.todos {
+  display: grid;
+  gap: 8px;
+  max-height: 430px;
+  overflow: auto;
+}
+
+.widget .todos {
+  max-height: 230px;
+}
+
+.todo {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 10px;
+  align-items: center;
+  padding: 12px;
+  border-radius: 18px;
+  background: white;
+}
+
+.todo p {
+  margin: 0;
+  white-space: pre-wrap;
+  line-height: 1.35;
+}
+
+.empty {
+  color: #8b95a1;
+  text-align: center;
+}

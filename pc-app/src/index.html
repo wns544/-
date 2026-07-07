@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>잠깐 할 일 PC</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="app">
+      <header class="topbar">
+        <div>
+          <h1>잠깐 할 일</h1>
+          <p id="status">로그인이 필요합니다.</p>
+        </div>
+        <div class="window-actions">
+          <button id="minimize" class="ghost">_</button>
+          <button id="close" class="ghost">×</button>
+        </div>
+      </header>
+
+      <section id="signedOut" class="card">
+        <p>휴대폰과 같은 Google 계정으로 로그인하면 메모가 바로 동기화됩니다.</p>
+        <button id="signIn" class="primary">Google 로그인</button>
+      </section>
+
+      <section id="signedIn" class="stack hidden">
+        <div class="card add-card">
+          <textarea id="newTodo" placeholder="PC에서 추가할 메모"></textarea>
+          <button id="addTodo" class="primary">추가</button>
+        </div>
+        <div class="toolbar">
+          <button id="copyAll">전체 복사</button>
+          <button id="signOut">로그아웃</button>
+        </div>
+        <div id="todos" class="todos"></div>
+      </section>
+    </main>
+
+    <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore-compat.js"></script>
+    <script src="./renderer.js"></script>
+  </body>
+</html>
