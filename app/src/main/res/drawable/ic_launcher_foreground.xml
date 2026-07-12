@@ -5,11 +5,6 @@
     android:viewportWidth="108"
     android:viewportHeight="108">
 
-    <!-- Fill the complete folded corner and round only its inner angle. -->
-    <path
-        android:fillColor="#FFFDF0"
-        android:pathData="M68,18 L90,18 L90,40 L74,40 C70.686,40 68,37.314 68,34 L68,18 Z" />
-
     <path
         android:fillColor="#00000000"
         android:strokeColor="#3F684E"
