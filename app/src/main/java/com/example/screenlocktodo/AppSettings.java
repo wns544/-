@@ -15,6 +15,9 @@ final class AppSettings {
     private static final String KEY_TODO_SWIPE_BOTH_DIRECTIONS_DELETE = "todo_swipe_both_directions_delete";
     private static final String KEY_DOUBLE_TAP_SCREEN_OFF_ENABLED = "double_tap_screen_off_enabled";
     private static final String KEY_RELEASE_LOCK_ON_SCREEN_OFF = "release_lock_on_screen_off";
+    private static final String KEY_LOCK_DISPLAY_MODE = "lock_display_mode";
+    private static final String KEY_IDLE_DISMISS_PROTECTION_ENABLED = "idle_dismiss_protection_enabled";
+    private static final String KEY_IDLE_DISMISS_TIMEOUT_SECONDS = "idle_dismiss_timeout_seconds";
     private static final String KEY_COMPACT_LOCK_CLOCK_LAYOUT = "compact_lock_clock_layout";
     private static final String KEY_TODOS_LOCKED = "todos_locked";
     private static final String KEY_BATTERY_GUIDE_SHOWN = "battery_guide_shown";
@@ -22,6 +25,9 @@ final class AppSettings {
     private static final String KEY_SPEECH_LANGUAGE_TAG = "speech_language_tag";
     private static final String KEY_LOCK_BACKGROUND_IMAGE_URI = "lock_background_image_uri";
     private static final int DEFAULT_OVERLAY_OPACITY = 40;
+    private static final int DEFAULT_IDLE_DISMISS_TIMEOUT_SECONDS = 10;
+    private static final int MIN_IDLE_DISMISS_TIMEOUT_SECONDS = 5;
+    private static final int MAX_IDLE_DISMISS_TIMEOUT_SECONDS = 60;
 
     private AppSettings() {
     }
@@ -83,11 +89,60 @@ final class AppSettings {
     }
 
     static boolean releaseLockOnScreenOff(Context context) {
-        return prefs(context).getBoolean(KEY_RELEASE_LOCK_ON_SCREEN_OFF, false);
+        return lockDisplayMode(context) == LockDisplayMode.AOD_PRIORITY;
     }
 
     static void setReleaseLockOnScreenOff(Context context, boolean value) {
-        prefs(context).edit().putBoolean(KEY_RELEASE_LOCK_ON_SCREEN_OFF, value).apply();
+        setLockDisplayMode(context, value ? LockDisplayMode.AOD_PRIORITY : LockDisplayMode.FAST_PREARM);
+    }
+
+    static LockDisplayMode lockDisplayMode(Context context) {
+        SharedPreferences preferences = prefs(context);
+        String stored = preferences.getString(KEY_LOCK_DISPLAY_MODE, "");
+        if (LockDisplayMode.AOD_PRIORITY.name().equals(stored)) {
+            return LockDisplayMode.AOD_PRIORITY;
+        }
+        if (LockDisplayMode.FAST_PREARM.name().equals(stored)) {
+            return LockDisplayMode.FAST_PREARM;
+        }
+        return preferences.getBoolean(KEY_RELEASE_LOCK_ON_SCREEN_OFF, false)
+                ? LockDisplayMode.AOD_PRIORITY
+                : LockDisplayMode.FAST_PREARM;
+    }
+
+    static void setLockDisplayMode(Context context, LockDisplayMode mode) {
+        LockDisplayMode resolved = mode == null ? LockDisplayMode.FAST_PREARM : mode;
+        prefs(context).edit()
+                .putString(KEY_LOCK_DISPLAY_MODE, resolved.name())
+                .putBoolean(KEY_RELEASE_LOCK_ON_SCREEN_OFF, resolved == LockDisplayMode.AOD_PRIORITY)
+                .apply();
+    }
+
+    static boolean idleDismissProtectionEnabled(Context context) {
+        return prefs(context).getBoolean(KEY_IDLE_DISMISS_PROTECTION_ENABLED, true);
+    }
+
+    static void setIdleDismissProtectionEnabled(Context context, boolean value) {
+        prefs(context).edit().putBoolean(KEY_IDLE_DISMISS_PROTECTION_ENABLED, value).apply();
+    }
+
+    static int idleDismissTimeoutSeconds(Context context) {
+        int stored = prefs(context).getInt(KEY_IDLE_DISMISS_TIMEOUT_SECONDS, DEFAULT_IDLE_DISMISS_TIMEOUT_SECONDS);
+        return boundIdleDismissTimeoutSeconds(stored);
+    }
+
+    static void setIdleDismissTimeoutSeconds(Context context, int value) {
+        prefs(context).edit()
+                .putInt(KEY_IDLE_DISMISS_TIMEOUT_SECONDS, boundIdleDismissTimeoutSeconds(value))
+                .apply();
+    }
+
+    static long idleDismissTimeoutMs(Context context) {
+        return idleDismissTimeoutSeconds(context) * 1000L;
+    }
+
+    private static int boundIdleDismissTimeoutSeconds(int value) {
+        return Math.max(MIN_IDLE_DISMISS_TIMEOUT_SECONDS, Math.min(MAX_IDLE_DISMISS_TIMEOUT_SECONDS, value));
     }
 
     static boolean compactLockClockLayout(Context context) {

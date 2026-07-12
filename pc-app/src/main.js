@@ -5,6 +5,7 @@ const path = require("path");
 
 let server;
 let baseUrl;
+const appIconPath = path.join(__dirname, "..", "assets", "icon.ico");
 
 function contentType(filePath) {
   if (filePath.endsWith(".html")) return "text/html; charset=utf-8";
@@ -52,6 +53,7 @@ function createWindow(widget = false) {
     frame: !widget,
     alwaysOnTop: widget,
     transparent: widget,
+    icon: appIconPath,
     title: widget ? "잠깐 할 일 위젯" : "잠깐 할 일 PC",
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
@@ -66,7 +68,6 @@ function createWindow(widget = false) {
 app.whenReady().then(async () => {
   await startServer();
   createWindow(false);
-  createWindow(true);
 });
 
 ipcMain.handle("clipboard:write", (_event, text) => {

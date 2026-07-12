@@ -12,6 +12,8 @@
 body {
   margin: 0;
   background: #f4f5f7;
+  min-height: 100vh;
+  overflow: hidden;
 }
 
 body.widget {
@@ -19,7 +21,10 @@ body.widget {
 }
 
 .app {
+  display: flex;
+  flex-direction: column;
   min-height: 100vh;
+  height: 100vh;
   padding: 22px;
 }
 
@@ -92,7 +97,10 @@ button {
 }
 
 .stack {
-  display: grid;
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
   gap: 12px;
 }
 
@@ -124,13 +132,15 @@ textarea {
 
 .todos {
   display: grid;
+  flex: 1;
+  min-height: 0;
+  align-content: start;
   gap: 8px;
-  max-height: 430px;
   overflow: auto;
 }
 
 .widget .todos {
-  max-height: 230px;
+  min-height: 0;
 }
 
 .todo {

@@ -6,7 +6,7 @@
   "main": "src/main.js",
   "scripts": {
     "start": "electron .",
-    "build": "electron-packager . \"Nudge Screen PC\" --platform=win32 --arch=x64 --out=dist --overwrite",
+    "build": "electron-packager . \"Nudge Screen PC\" --platform=win32 --arch=x64 --out=dist --overwrite --icon=assets/icon.ico",
     "build:installer": "electron-builder --win"
   },
   "devDependencies": {
@@ -18,9 +18,11 @@
     "appId": "com.wns544.nudgescreen.pc",
     "productName": "잠깐 할 일 PC",
     "win": {
+      "icon": "assets/icon.ico",
       "target": "nsis"
     },
     "files": [
+      "assets/**/*",
       "src/**/*",
       "package.json"
     ]

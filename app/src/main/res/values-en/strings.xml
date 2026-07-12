@@ -96,4 +96,13 @@
     <string name="shortcut_add_memo_long_label">Add a Nudge Screen memo</string>
     <string name="shortcut_leave_memo_short_label">Leave memo</string>
     <string name="shortcut_leave_memo_long_label">Leave a Nudge Screen memo</string>
+    <string name="lock_display_mode_title">Lock screen display</string>
+    <string name="lock_display_mode_fast">Instant display</string>
+    <string name="lock_display_mode_aod">Prioritize AOD</string>
+    <string name="lock_display_mode_fast_ready">Instant display is ready</string>
+    <string name="lock_display_mode_fast_permission">Appear on top permission is required. Tap to enable it.</string>
+    <string name="lock_display_mode_aod_desc">Prioritizes AOD notifications and opens the lock screen after the display turns on.</string>
+    <string name="lock_display_permission_title">Instant display permission</string>
+    <string name="lock_display_permission_body">Nudge Screen needs permission to appear on top so it can prepare the lock screen while the display is off. It does not use this permission to show a floating window.</string>
+    <string name="lock_display_permission_action">Open permission settings</string>
 </resources>

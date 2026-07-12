@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Fill the complete folded corner and round only its inner angle. -->
+    <path
+        android:fillColor="#FFFDF0"
+        android:pathData="M68,18 L90,18 L90,40 L74,40 C70.686,40 68,37.314 68,34 L68,18 Z" />
+
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#3F684E"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:strokeWidth="7.5"
+        android:pathData="M35,54 L49,68 L72,45" />
+</vector>

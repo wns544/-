@@ -96,4 +96,13 @@
     <string name="shortcut_add_memo_long_label">잠깐 할 일 메모 추가</string>
     <string name="shortcut_leave_memo_short_label">메모 남기기</string>
     <string name="shortcut_leave_memo_long_label">잠깐 할 일에 메모 남기기</string>
+    <string name="lock_display_mode_title">잠금화면 표시 방식</string>
+    <string name="lock_display_mode_fast">즉시 표시</string>
+    <string name="lock_display_mode_aod">AOD 알림 우선</string>
+    <string name="lock_display_mode_fast_ready">빠른 표시 준비됨</string>
+    <string name="lock_display_mode_fast_permission">다른 앱 위에 표시 권한이 필요합니다. 눌러서 켜기</string>
+    <string name="lock_display_mode_aod_desc">AOD 알림을 우선하고 화면이 켜진 뒤 잠금화면을 표시합니다.</string>
+    <string name="lock_display_permission_title">즉시 표시 권한</string>
+    <string name="lock_display_permission_body">화면이 꺼져 있을 때 잠금화면을 미리 준비하려면 다른 앱 위에 표시 권한이 필요합니다. 이 권한으로 플로팅 창을 띄우지는 않습니다.</string>
+    <string name="lock_display_permission_action">권한 설정 열기</string>
 </resources>

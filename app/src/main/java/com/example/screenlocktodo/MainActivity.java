@@ -103,6 +103,10 @@ public class MainActivity extends Activity {
     private Button undoDeleteButton;
     private final ArrayDeque<DeletedTodo> deletedTodos = new ArrayDeque<>();
     private TextView opacityValue;
+    private TextView lockModeFastButton;
+    private TextView lockModeAodButton;
+    private TextView lockModeStatus;
+    private TextView idleDismissTimeoutValue;
     private View drawerScrim;
     private LinearLayout drawerPanel;
     private TextView cloudAccountText;
@@ -200,6 +204,7 @@ public class MainActivity extends Activity {
         super.onResume();
         DiagnosticLog.recordAppState(this, "main onResume");
         syncLockMonitorService();
+        updateLockDisplayModeControls();
         refreshTodos();
         FirebaseTodoSync.start(this, cloudSyncListener);
     }
@@ -474,27 +479,39 @@ public class MainActivity extends Activity {
         doubleTapWarning.setPadding(dp(34), dp(2), 0, dp(2));
         card.addView(doubleTapWarning);
 
-        CheckBox aodFriendlyMode = new CheckBox(this);
-        tintCheckBox(aodFriendlyMode);
-        aodFriendlyMode.setText("AOD \uC54C\uB9BC \uC6B0\uC120 \uBAA8\uB4DC");
-        aodFriendlyMode.setTextSize(15);
-        aodFriendlyMode.setTextColor(COLOR_INK);
-        aodFriendlyMode.setPadding(0, dp(8), 0, 0);
-        aodFriendlyMode.setChecked(AppSettings.releaseLockOnScreenOff(this));
-        aodFriendlyMode.setOnCheckedChangeListener((buttonView, isChecked) -> {
-            AppSettings.setReleaseLockOnScreenOff(MainActivity.this, isChecked);
-            DiagnosticLog.record(MainActivity.this, "NudgeMain", "release lock on screen off=" + isChecked);
-        });
-        card.addView(aodFriendlyMode);
+        TextView displayModeTitle = text(getString(R.string.lock_display_mode_title), 15, COLOR_INK, true);
+        displayModeTitle.setPadding(0, dp(16), 0, dp(8));
+        card.addView(displayModeTitle);
 
-        TextView aodFriendlyDesc = text(
-                "\uD654\uBA74\uC774 \uAEBC\uC9C0\uBA74 \uC7A0\uAE50 \uD560 \uC77C \uC7A0\uAE08\uD654\uBA74\uC744 \uB0B4\uB824 \uC0BC\uC131 AOD \uC54C\uB9BC\uC774 \uBCF4\uC774\uAC8C \uD569\uB2C8\uB2E4.",
-                13,
-                COLOR_MUTED,
-                false
-        );
-        aodFriendlyDesc.setPadding(dp(34), dp(2), 0, dp(2));
-        card.addView(aodFriendlyDesc);
+        LinearLayout displayModeSelector = new LinearLayout(this);
+        displayModeSelector.setOrientation(LinearLayout.HORIZONTAL);
+        displayModeSelector.setPadding(dp(3), dp(3), dp(3), dp(3));
+        displayModeSelector.setBackground(rounded(COLOR_FIELD, 18));
+
+        lockModeFastButton = text(getString(R.string.lock_display_mode_fast), 14, COLOR_INK, true);
+        lockModeFastButton.setGravity(Gravity.CENTER);
+        lockModeFastButton.setOnClickListener(v -> selectLockDisplayMode(LockDisplayMode.FAST_PREARM));
+        LinearLayout.LayoutParams fastModeParams = new LinearLayout.LayoutParams(0, dp(40), 1);
+        fastModeParams.rightMargin = dp(2);
+        displayModeSelector.addView(lockModeFastButton, fastModeParams);
+
+        lockModeAodButton = text(getString(R.string.lock_display_mode_aod), 14, COLOR_INK, true);
+        lockModeAodButton.setGravity(Gravity.CENTER);
+        lockModeAodButton.setOnClickListener(v -> selectLockDisplayMode(LockDisplayMode.AOD_PRIORITY));
+        LinearLayout.LayoutParams aodModeParams = new LinearLayout.LayoutParams(0, dp(40), 1);
+        aodModeParams.leftMargin = dp(2);
+        displayModeSelector.addView(lockModeAodButton, aodModeParams);
+        card.addView(displayModeSelector, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                dp(46)
+        ));
+
+        lockModeStatus = text("", 13, COLOR_MUTED, false);
+        lockModeStatus.setPadding(dp(4), dp(7), dp(4), dp(2));
+        card.addView(lockModeStatus);
+        updateLockDisplayModeControls();
+
+        card.addView(idleDismissProtectionControls());
 
         CheckBox compactClockLayout = new CheckBox(this);
         tintCheckBox(compactClockLayout);
@@ -519,6 +536,150 @@ public class MainActivity extends Activity {
         card.addView(compactClockDesc);
 
         return card;
+    }
+
+    private View idleDismissProtectionControls() {
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setPadding(0, dp(12), 0, dp(4));
+
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+
+        LinearLayout copy = new LinearLayout(this);
+        copy.setOrientation(LinearLayout.VERTICAL);
+        TextView title = text("\uC790\uB3D9 \uAEBC\uC9D0 \uBCF4\uD638", 15, COLOR_INK, true);
+        TextView subtitle = text("\uC54C\uB9BC\uC73C\uB85C \uCF1C\uC84C\uB294\uB370 \uC190\uB300\uC9C0 \uC54A\uC73C\uBA74 \uC7A0\uAE08\uD654\uBA74\uC744 \uC790\uB3D9\uC73C\uB85C \uB0B4\uB9BD\uB2C8\uB2E4.", 12, COLOR_MUTED, false);
+        subtitle.setPadding(0, dp(3), dp(10), 0);
+        copy.addView(title);
+        copy.addView(subtitle);
+        row.addView(copy, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
+
+        Switch enabled = new Switch(this);
+        tintSwitch(enabled);
+        enabled.setChecked(AppSettings.idleDismissProtectionEnabled(this));
+        enabled.setOnCheckedChangeListener((buttonView, isChecked) -> {
+            AppSettings.setIdleDismissProtectionEnabled(MainActivity.this, isChecked);
+            DiagnosticLog.record(MainActivity.this, "NudgeMain", "idle dismiss protection=" + isChecked);
+        });
+        row.addView(enabled, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+        ));
+        box.addView(row);
+
+        LinearLayout timeoutHeader = new LinearLayout(this);
+        timeoutHeader.setGravity(Gravity.CENTER_VERTICAL);
+        timeoutHeader.setPadding(dp(34), dp(8), 0, 0);
+        timeoutHeader.addView(text("\uC2DC\uAC04", 14, COLOR_INK, false),
+                new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
+        idleDismissTimeoutValue = text("", 14, COLOR_ACCENT, false);
+        idleDismissTimeoutValue.setGravity(Gravity.RIGHT);
+        timeoutHeader.addView(idleDismissTimeoutValue, new LinearLayout.LayoutParams(dp(76), LinearLayout.LayoutParams.WRAP_CONTENT));
+        box.addView(timeoutHeader);
+
+        SeekBar timeout = new SeekBar(this);
+        tintSeekBar(timeout);
+        timeout.setMax(55);
+        timeout.setProgress(AppSettings.idleDismissTimeoutSeconds(this) - 5);
+        updateIdleDismissTimeoutValue();
+        timeout.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            @Override
+            public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
+                int seconds = progress + 5;
+                AppSettings.setIdleDismissTimeoutSeconds(MainActivity.this, seconds);
+                updateIdleDismissTimeoutValue();
+            }
+
+            @Override
+            public void onStartTrackingTouch(SeekBar seekBar) {
+            }
+
+            @Override
+            public void onStopTrackingTouch(SeekBar seekBar) {
+                DiagnosticLog.record(MainActivity.this, "NudgeMain",
+                        "idle dismiss timeout seconds=" + AppSettings.idleDismissTimeoutSeconds(MainActivity.this));
+            }
+        });
+        LinearLayout.LayoutParams timeoutParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                dp(44)
+        );
+        timeoutParams.leftMargin = dp(26);
+        box.addView(timeout, timeoutParams);
+        return box;
+    }
+
+    private void updateIdleDismissTimeoutValue() {
+        if (idleDismissTimeoutValue != null) {
+            idleDismissTimeoutValue.setText(AppSettings.idleDismissTimeoutSeconds(this) + "\uCD08");
+        }
+    }
+
+    private void selectLockDisplayMode(LockDisplayMode mode) {
+        AppSettings.setLockDisplayMode(this, mode);
+        DiagnosticLog.record(this, "NudgeMain", "lock display mode=" + mode.name());
+        updateLockDisplayModeControls();
+        syncLockMonitorService();
+        if (mode == LockDisplayMode.FAST_PREARM && !canUseFastPrearm()) {
+            showFastPrearmPermissionDialog();
+        }
+    }
+
+    private void updateLockDisplayModeControls() {
+        if (lockModeFastButton == null || lockModeAodButton == null || lockModeStatus == null) {
+            return;
+        }
+        LockDisplayMode mode = AppSettings.lockDisplayMode(this);
+        boolean fastSelected = mode == LockDisplayMode.FAST_PREARM;
+        lockModeFastButton.setTextColor(fastSelected ? 0xFFFFFFFF : COLOR_INK);
+        lockModeFastButton.setBackground(rounded(fastSelected ? COLOR_ACCENT : 0x00FFFFFF, 15));
+        lockModeAodButton.setTextColor(fastSelected ? COLOR_INK : 0xFFFFFFFF);
+        lockModeAodButton.setBackground(rounded(fastSelected ? 0x00FFFFFF : COLOR_ACCENT, 15));
+
+        if (!fastSelected) {
+            lockModeStatus.setText(R.string.lock_display_mode_aod_desc);
+            lockModeStatus.setTextColor(COLOR_MUTED);
+            lockModeStatus.setOnClickListener(null);
+            lockModeStatus.setClickable(false);
+        } else if (canUseFastPrearm()) {
+            lockModeStatus.setText(R.string.lock_display_mode_fast_ready);
+            lockModeStatus.setTextColor(COLOR_ACCENT);
+            lockModeStatus.setOnClickListener(null);
+            lockModeStatus.setClickable(false);
+        } else {
+            lockModeStatus.setText(R.string.lock_display_mode_fast_permission);
+            lockModeStatus.setTextColor(COLOR_DANGER);
+            lockModeStatus.setClickable(true);
+            lockModeStatus.setOnClickListener(v -> showFastPrearmPermissionDialog());
+        }
+    }
+
+    private boolean canUseFastPrearm() {
+        return Build.VERSION.SDK_INT < Build.VERSION_CODES.M || Settings.canDrawOverlays(this);
+    }
+
+    private void showFastPrearmPermissionDialog() {
+        new AlertDialog.Builder(this)
+                .setTitle(R.string.lock_display_permission_title)
+                .setMessage(R.string.lock_display_permission_body)
+                .setPositiveButton(R.string.lock_display_permission_action, (dialog, which) -> openFastPrearmPermissionSettings())
+                .setNegativeButton(R.string.close, null)
+                .show();
+    }
+
+    private void openFastPrearmPermissionSettings() {
+        Intent intent = new Intent(
+                Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                Uri.parse("package:" + getPackageName())
+        );
+        try {
+            startActivity(intent);
+        } catch (RuntimeException e) {
+            DiagnosticLog.record(this, "NudgeMain", "overlay permission settings failed", e);
+            startActivity(new Intent(Settings.ACTION_SETTINGS));
+        }
     }
 
     private View todoCard() {

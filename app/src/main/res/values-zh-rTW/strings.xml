@@ -96,4 +96,13 @@
     <string name="shortcut_add_memo_long_label">新增 Nudge Screen 備忘</string>
     <string name="shortcut_leave_memo_short_label">留下備忘</string>
     <string name="shortcut_leave_memo_long_label">留下 Nudge Screen 備忘</string>
+    <string name="lock_display_mode_title">鎖定畫面顯示方式</string>
+    <string name="lock_display_mode_fast">立即顯示</string>
+    <string name="lock_display_mode_aod">優先顯示 AOD 通知</string>
+    <string name="lock_display_mode_fast_ready">已準備立即顯示</string>
+    <string name="lock_display_mode_fast_permission">需要允許顯示在其他應用程式上層。輕觸以開啟。</string>
+    <string name="lock_display_mode_aod_desc">優先顯示 AOD 通知，並在螢幕亮起後開啟鎖定畫面。</string>
+    <string name="lock_display_permission_title">立即顯示權限</string>
+    <string name="lock_display_permission_body">若要在螢幕關閉時預先準備鎖定畫面，需要允許顯示在其他應用程式上層。此權限不會用來顯示浮動視窗。</string>
+    <string name="lock_display_permission_action">開啟權限設定</string>
 </resources>

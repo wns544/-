@@ -6,6 +6,7 @@ import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
 import android.os.Build;
 import android.os.PowerManager;
+import android.provider.Settings;
 import android.util.Log;
 
 import java.io.BufferedReader;
@@ -152,6 +153,11 @@ final class DiagnosticLog {
         builder.append("Device: ").append(Build.MANUFACTURER).append(' ').append(Build.MODEL).append('\n');
         builder.append("Android: ").append(Build.VERSION.RELEASE).append(" / SDK ").append(Build.VERSION.SDK_INT).append('\n');
         builder.append("Lock enabled: ").append(AppSettings.lockScreenEnabled(context)).append('\n');
+        builder.append("Lock display mode: ").append(AppSettings.lockDisplayMode(context).name()).append('\n');
+        builder.append("Idle dismiss protection: ").append(AppSettings.idleDismissProtectionEnabled(context))
+                .append(" / ").append(AppSettings.idleDismissTimeoutSeconds(context)).append("s").append('\n');
+        builder.append("Fast pre-arm permission: ").append(Build.VERSION.SDK_INT < Build.VERSION_CODES.M
+                || Settings.canDrawOverlays(context)).append('\n');
         builder.append("Todos locked: ").append(AppSettings.todosLocked(context)).append('\n');
         builder.append("Overlay opacity: ").append(AppSettings.overlayOpacity(context)).append('%').append('\n');
         builder.append("Lock background mode: ").append(lockBackgroundMode(context)).append('\n');

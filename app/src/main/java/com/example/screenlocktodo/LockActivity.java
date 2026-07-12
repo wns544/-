@@ -64,13 +64,18 @@ import java.util.Locale;
 public class LockActivity extends Activity {
     static final String EXTRA_TURN_SCREEN_ON = "com.example.screenlocktodo.TURN_SCREEN_ON";
     static final String EXTRA_IDLE_SCREEN_OFF = "com.example.screenlocktodo.IDLE_SCREEN_OFF";
+    static final String EXTRA_PRE_ARMED = "com.example.screenlocktodo.PRE_ARMED";
+    static final String EXTRA_PRE_ARM_REQUESTED_AT = "com.example.screenlocktodo.PRE_ARM_REQUESTED_AT";
+    static final String EXTRA_SCREEN_ON_AT = "com.example.screenlocktodo.SCREEN_ON_AT";
     static final String ACTION_CLOSE_FOR_SCREEN_OFF = "com.example.screenlocktodo.CLOSE_FOR_SCREEN_OFF";
+    static final String ACTION_PRE_ARM_SCREEN_ON = "com.example.screenlocktodo.PRE_ARM_SCREEN_ON";
     private static volatile boolean showing;
     private static volatile boolean visible;
+    private static volatile boolean contentReady;
+    private static volatile boolean preArmReady;
     private static volatile long lastVisibleAt;
     private static final long TODO_DOUBLE_TAP_MS = 420L;
     private static final long CURTAIN_DOUBLE_TAP_MS = 360L;
-    private static final long IDLE_DISMISS_DELAY_MS = 10_000L;
     private static final long INPUT_DRAFT_KEEP_MS = 60_000L;
 
     private LinearLayout todoList;
@@ -122,9 +127,14 @@ public class LockActivity extends Activity {
     private ValueAnimator inputBlockHeightAnimator;
     private final Handler uiHandler = new Handler(Looper.getMainLooper());
     private boolean closeForScreenOffReceiverRegistered;
+    private boolean launchedAsPreArm;
+    private long pendingScreenOnAt;
+    private boolean idleDismissProtectionActive;
+    private boolean idleDismissCanceledByUser;
     private final Runnable idleDismissRunnable = () -> {
         if (!isFinishing() && visible) {
-            DiagnosticLog.record(this, "NudgeLockActivity", "idle dismiss after " + IDLE_DISMISS_DELAY_MS + "ms");
+            DiagnosticLog.record(this, "NudgeLockActivity", "idle dismiss after "
+                    + AppSettings.idleDismissTimeoutMs(this) + "ms");
             closeForIdleTimeout();
         }
     };
@@ -168,6 +178,8 @@ public class LockActivity extends Activity {
         public void onReceive(Context context, Intent intent) {
             if (ACTION_CLOSE_FOR_SCREEN_OFF.equals(intent.getAction())) {
                 closeForScreenOff();
+            } else if (ACTION_PRE_ARM_SCREEN_ON.equals(intent.getAction())) {
+                activatePreparedLockScreen(intent);
             }
         }
     };
@@ -179,11 +191,17 @@ public class LockActivity extends Activity {
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
+        long createStartedAt = SystemClock.elapsedRealtime();
         setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_PORTRAIT);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             setRecentsScreenshotEnabled(false);
         }
         showing = true;
+        contentReady = false;
+        preArmReady = false;
+        launchedAsPreArm = getIntent().getBooleanExtra(EXTRA_PRE_ARMED, false);
+        idleDismissProtectionActive = !launchedAsPreArm && shouldStartIdleDismissForIntent(getIntent());
+        idleDismissCanceledByUser = false;
         configureLockWindow();
         super.onCreate(savedInstanceState);
         todosLocked = AppSettings.todosLocked(this);
@@ -194,6 +212,13 @@ public class LockActivity extends Activity {
         registerBackHandler();
         setContentView(buildContent());
         refreshTodos();
+        contentReady = true;
+        if (launchedAsPreArm) {
+            preArmReady = true;
+            long requestedAt = getIntent().getLongExtra(EXTRA_PRE_ARM_REQUESTED_AT, createStartedAt);
+            DiagnosticLog.record(this, "NudgeLockActivity", "pre-arm activity ready createMs="
+                    + (SystemClock.elapsedRealtime() - requestedAt));
+        }
     }
 
     @Override
@@ -238,8 +263,21 @@ public class LockActivity extends Activity {
         showing = true;
         super.onNewIntent(intent);
         setIntent(intent);
+        if (intent.getBooleanExtra(EXTRA_PRE_ARMED, false)) {
+            launchedAsPreArm = true;
+            idleDismissProtectionActive = false;
+            idleDismissCanceledByUser = false;
+            preArmReady = contentReady;
+            long requestedAt = intent.getLongExtra(EXTRA_PRE_ARM_REQUESTED_AT, SystemClock.elapsedRealtime());
+            DiagnosticLog.record(this, "NudgeLockActivity", "existing activity prepared createMs="
+                    + (SystemClock.elapsedRealtime() - requestedAt));
+        } else {
+            launchedAsPreArm = false;
+            idleDismissProtectionActive = shouldStartIdleDismissForIntent(intent);
+            idleDismissCanceledByUser = false;
+        }
         DiagnosticLog.recordAppState(this, "lock activity onNewIntent turnScreenOn=" + intent.getBooleanExtra(EXTRA_TURN_SCREEN_ON, true)
-                + " idleScreenOff=" + shouldEnforceIdleScreenOff(intent));
+                + " idleScreenOff=" + shouldStartIdleDismissForIntent(intent));
         todosLocked = AppSettings.todosLocked(this);
         configureLockWindow();
         LockMonitorService.cancelLockNotification(this);
@@ -268,6 +306,7 @@ public class LockActivity extends Activity {
         if (shouldEnforceIdleScreenOff()) {
             scheduleIdleDismiss();
         }
+        scheduleFirstWakeFrameLog();
     }
 
     @Override
@@ -292,7 +331,9 @@ public class LockActivity extends Activity {
     public void onUserInteraction() {
         super.onUserInteraction();
         if (shouldEnforceIdleScreenOff()) {
-            scheduleIdleDismiss();
+            idleDismissCanceledByUser = true;
+            cancelIdleDismiss();
+            DiagnosticLog.record(this, "NudgeLockActivity", "idle dismiss canceled by user interaction");
         }
     }
 
@@ -300,6 +341,8 @@ public class LockActivity extends Activity {
     protected void onDestroy() {
         DiagnosticLog.record(this, "NudgeLockActivity", "onDestroy");
         showing = false;
+        contentReady = false;
+        preArmReady = false;
         unregisterCloseForScreenOffReceiver();
         unregisterClockReceiver();
         uiHandler.removeCallbacksAndMessages(null);
@@ -551,6 +594,22 @@ public class LockActivity extends Activity {
 
     static long lastVisibleAt() {
         return lastVisibleAt;
+    }
+
+    static boolean isPreArmReady() {
+        return showing && contentReady && preArmReady;
+    }
+
+    static boolean markPreparedForWake() {
+        if (!showing || !contentReady) {
+            return false;
+        }
+        preArmReady = true;
+        return true;
+    }
+
+    static void clearPreparedForWake() {
+        preArmReady = false;
     }
 
     private void configureLockWindow() {
@@ -969,6 +1028,7 @@ public class LockActivity extends Activity {
             return;
         }
         IntentFilter filter = new IntentFilter(ACTION_CLOSE_FOR_SCREEN_OFF);
+        filter.addAction(ACTION_PRE_ARM_SCREEN_ON);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             registerReceiver(closeForScreenOffReceiver, filter, Context.RECEIVER_NOT_EXPORTED);
         } else {
@@ -2201,6 +2261,7 @@ public class LockActivity extends Activity {
 
     private void closeLockTask() {
         DiagnosticLog.record(this, "NudgeLockActivity", "close lock task");
+        preArmReady = false;
         sendBroadcast(new Intent(LockMonitorService.ACTION_LOCK_DISMISSED_BY_USER).setPackage(getPackageName()));
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
             finishAndRemoveTask();
@@ -2212,6 +2273,7 @@ public class LockActivity extends Activity {
 
     private void closeForScreenOff() {
         DiagnosticLog.record(this, "NudgeLockActivity", "close for screen off");
+        preArmReady = false;
         if (inputBlock != null && inputBlock.getVisibility() == View.VISIBLE) {
             saveInputDraft();
         }
@@ -2224,10 +2286,39 @@ public class LockActivity extends Activity {
         overridePendingTransition(0, 0);
     }
 
+    private void activatePreparedLockScreen(Intent intent) {
+        pendingScreenOnAt = intent.getLongExtra(EXTRA_SCREEN_ON_AT, SystemClock.elapsedRealtime());
+        launchedAsPreArm = false;
+        idleDismissProtectionActive = true;
+        idleDismissCanceledByUser = false;
+        updateClock();
+        refreshTodos();
+        if (visible) {
+            scheduleIdleDismiss();
+        }
+        DiagnosticLog.record(this, "NudgeLockActivity", "pre-arm activated on screen on");
+        scheduleFirstWakeFrameLog();
+    }
+
+    private void scheduleFirstWakeFrameLog() {
+        long screenOnAt = pendingScreenOnAt;
+        if (screenOnAt <= 0L || getWindow() == null || getWindow().getDecorView() == null) {
+            return;
+        }
+        getWindow().getDecorView().postOnAnimation(() -> {
+            if (pendingScreenOnAt != screenOnAt) {
+                return;
+            }
+            pendingScreenOnAt = 0L;
+            DiagnosticLog.record(LockActivity.this, "NudgeLockActivity", "first prepared frame after screen on delayMs="
+                    + (SystemClock.elapsedRealtime() - screenOnAt));
+        });
+    }
+
     private void scheduleIdleDismiss() {
         uiHandler.removeCallbacks(idleDismissRunnable);
         if (shouldEnforceIdleScreenOff() && visible && !isFinishing()) {
-            uiHandler.postDelayed(idleDismissRunnable, IDLE_DISMISS_DELAY_MS);
+            uiHandler.postDelayed(idleDismissRunnable, AppSettings.idleDismissTimeoutMs(this));
         }
     }
 
@@ -2236,10 +2327,12 @@ public class LockActivity extends Activity {
     }
 
     private boolean shouldEnforceIdleScreenOff() {
-        return shouldEnforceIdleScreenOff(getIntent());
+        return AppSettings.idleDismissProtectionEnabled(this)
+                && idleDismissProtectionActive
+                && !idleDismissCanceledByUser;
     }
 
-    private boolean shouldEnforceIdleScreenOff(Intent intent) {
+    private boolean shouldStartIdleDismissForIntent(Intent intent) {
         return intent != null && intent.getBooleanExtra(EXTRA_IDLE_SCREEN_OFF, false);
     }
 
