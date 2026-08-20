@@ -105,4 +105,7 @@
     <string name="lock_display_permission_title">Instant display permission</string>
     <string name="lock_display_permission_body">Nudge Screen needs permission to appear on top so it can prepare the lock screen while the display is off. It does not use this permission to show a floating window.</string>
     <string name="lock_display_permission_action">Open permission settings</string>
+    <string name="overlay_onboarding_title">Lock screen display permission</string>
+    <string name="overlay_onboarding_body">To show your todos as soon as the screen turns on, Nudge Screen needs permission to appear on top. Allow Nudge Screen on the next screen.</string>
+    <string name="overlay_onboarding_action">Allow now</string>
 </resources>

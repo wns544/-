@@ -21,6 +21,7 @@ final class AppSettings {
     private static final String KEY_COMPACT_LOCK_CLOCK_LAYOUT = "compact_lock_clock_layout";
     private static final String KEY_TODOS_LOCKED = "todos_locked";
     private static final String KEY_BATTERY_GUIDE_SHOWN = "battery_guide_shown";
+    private static final String KEY_OVERLAY_GUIDE_SHOWN = "overlay_guide_shown";
     private static final String KEY_LANGUAGE_TAG = "language_tag";
     private static final String KEY_SPEECH_LANGUAGE_TAG = "speech_language_tag";
     private static final String KEY_LOCK_BACKGROUND_IMAGE_URI = "lock_background_image_uri";
@@ -167,6 +168,14 @@ final class AppSettings {
 
     static void setBatteryGuideShown(Context context, boolean value) {
         prefs(context).edit().putBoolean(KEY_BATTERY_GUIDE_SHOWN, value).apply();
+    }
+
+    static boolean overlayGuideShown(Context context) {
+        return prefs(context).getBoolean(KEY_OVERLAY_GUIDE_SHOWN, false);
+    }
+
+    static void setOverlayGuideShown(Context context, boolean value) {
+        prefs(context).edit().putBoolean(KEY_OVERLAY_GUIDE_SHOWN, value).apply();
     }
 
     static String languageTag(Context context) {

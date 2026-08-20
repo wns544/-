@@ -16,6 +16,7 @@ import android.hardware.Sensor;
 import android.hardware.SensorEvent;
 import android.hardware.SensorEventListener;
 import android.hardware.SensorManager;
+import android.media.AudioManager;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
@@ -64,6 +65,8 @@ public class LockMonitorService extends Service {
     private SensorManager activeProximityManager;
     private SensorEventListener activeProximityListener;
     private DisplayManager displayManager;
+    private AudioManager audioManager;
+    private Object callModeListener;
     private final DisplayManager.DisplayListener displayListener = new DisplayManager.DisplayListener() {
         @Override
         public void onDisplayAdded(int displayId) {
@@ -225,6 +228,7 @@ public class LockMonitorService extends Service {
         createNotificationChannels();
         registerScreenReceiver();
         registerDisplayListener();
+        registerCallModeListener();
         startForeground(SERVICE_NOTIFICATION_ID, buildServiceNotification());
         TodoStore.warm(this);
         scheduleKeepAlive();
@@ -243,6 +247,7 @@ public class LockMonitorService extends Service {
         createNotificationChannels();
         registerScreenReceiver();
         registerDisplayListener();
+        registerCallModeListener();
         startForeground(SERVICE_NOTIFICATION_ID, buildServiceNotification());
         TodoStore.warm(this);
         scheduleKeepAlive();
@@ -261,6 +266,7 @@ public class LockMonitorService extends Service {
             displayManager.unregisterDisplayListener(displayListener);
             displayManager = null;
         }
+        unregisterCallModeListener();
         handler.removeCallbacksAndMessages(null);
         if (AppSettings.lockScreenEnabled(this)) {
             scheduleRestart(1200);
@@ -311,6 +317,35 @@ public class LockMonitorService extends Service {
             displayManager.registerDisplayListener(displayListener, handler);
             handleDefaultDisplayState();
         }
+    }
+
+    private void registerCallModeListener() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S || audioManager != null) {
+            return;
+        }
+        audioManager = (AudioManager) getSystemService(AUDIO_SERVICE);
+        if (audioManager != null) {
+            AudioManager.OnModeChangedListener listener = mode -> {
+                if (CallStateGuard.shouldSuppressForAudioMode(mode)) {
+                    suppressLockScreenForCall(this, "audio_mode_changed_" + mode);
+                }
+            };
+            callModeListener = listener;
+            audioManager.addOnModeChangedListener(getMainExecutor(), listener);
+            if (CallStateGuard.shouldSuppressForAudioMode(audioManager.getMode())) {
+                suppressLockScreenForCall(this, "listener_registered");
+            }
+        }
+    }
+
+    private void unregisterCallModeListener() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+                && audioManager != null
+                && callModeListener instanceof AudioManager.OnModeChangedListener) {
+            audioManager.removeOnModeChangedListener((AudioManager.OnModeChangedListener) callModeListener);
+        }
+        audioManager = null;
+        callModeListener = null;
     }
 
     private void handleDefaultDisplayState() {
@@ -367,6 +402,9 @@ public class LockMonitorService extends Service {
             long[] delaysMillis,
             String source
     ) {
+        if (suppressLockScreenForCall(this, source + "_schedule")) {
+            return;
+        }
         Context appContext = getApplicationContext();
         for (long delayMillis : delaysMillis) {
             handler.postDelayed(
@@ -394,6 +432,9 @@ public class LockMonitorService extends Service {
     }
 
     private void preArmLockScreen(Context context) {
+        if (suppressLockScreenForCall(context, "pre_arm")) {
+            return;
+        }
         if (AppSettings.lockDisplayMode(context) != LockDisplayMode.FAST_PREARM) {
             DiagnosticLog.record(context, TAG, "pre-arm skipped; AOD priority mode");
             return;
@@ -419,6 +460,7 @@ public class LockMonitorService extends Service {
                 .putExtra(LockActivity.EXTRA_IDLE_SCREEN_OFF, false)
                 .putExtra(LockActivity.EXTRA_PRE_ARMED, true)
                 .putExtra(LockActivity.EXTRA_PRE_ARM_REQUESTED_AT, now)
+                .putExtra(LockActivity.EXTRA_MONITOR_LAUNCH, true)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK
                         | Intent.FLAG_ACTIVITY_SINGLE_TOP
                         | Intent.FLAG_ACTIVITY_NO_ANIMATION
@@ -446,6 +488,9 @@ public class LockMonitorService extends Service {
     }
 
     private boolean activatePreparedLockScreen(Context context, long screenOnAt, String source) {
+        if (suppressLockScreenForCall(context, source + "_activate_prepared")) {
+            return false;
+        }
         if (AppSettings.lockDisplayMode(context) != LockDisplayMode.FAST_PREARM || !LockActivity.isPreArmReady()) {
             return false;
         }
@@ -597,6 +642,9 @@ public class LockMonitorService extends Service {
     private void showLockScreen(Context context, boolean wakeDisplay, boolean allowBeforeKeyguard, boolean allowNotificationFallback, String source) {
         long attemptId = ++nextLockAttemptId;
         long attemptAt = SystemClock.elapsedRealtime();
+        if (suppressLockScreenForCall(context, source + "_show")) {
+            return;
+        }
         if (!AppSettings.lockScreenEnabled(context)) {
             DiagnosticLog.record(context, TAG, "show lock skipped id=" + attemptId + " source=" + source + "; disabled");
             LockMonitorService.stop(context);
@@ -649,6 +697,7 @@ public class LockMonitorService extends Service {
         Intent lockIntent = new Intent(context, LockActivity.class)
                 .putExtra(LockActivity.EXTRA_TURN_SCREEN_ON, wakeDisplay)
                 .putExtra(LockActivity.EXTRA_IDLE_SCREEN_OFF, wakeDisplay)
+                .putExtra(LockActivity.EXTRA_MONITOR_LAUNCH, true)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK
                         | Intent.FLAG_ACTIVITY_SINGLE_TOP
                         | Intent.FLAG_ACTIVITY_NO_ANIMATION
@@ -676,6 +725,9 @@ public class LockMonitorService extends Service {
     }
 
     private void postFullScreenLockNotification(Context context, Intent lockIntent, long attemptId) {
+        if (suppressLockScreenForCall(context, "full_screen_notification_" + attemptId)) {
+            return;
+        }
         PendingIntent fullScreenIntent = PendingIntent.getActivity(
                 context,
                 1,
@@ -706,6 +758,9 @@ public class LockMonitorService extends Service {
     }
 
     private void showLockScreenAfterPocketCheck(Context context, boolean wakeDisplay, boolean allowBeforeKeyguard, boolean allowNotificationFallback, String source) {
+        if (suppressLockScreenForCall(context, source + "_pocket_check")) {
+            return;
+        }
         long now = SystemClock.elapsedRealtime();
         if (activeProximityListener != null && now - lastProximityCheckAt < PROXIMITY_CHECK_DEDUPE_MS) {
             DiagnosticLog.record(context, TAG, "show lock skipped source=" + source + "; proximity check already active");
@@ -812,6 +867,9 @@ public class LockMonitorService extends Service {
             boolean allowNotificationFallback
     ) {
         handler.postDelayed(() -> {
+            if (suppressLockScreenForCall(context, source + "_visibility_check")) {
+                return;
+            }
             long lastVisibleAt = LockActivity.lastVisibleAt();
             boolean becameVisible = lastVisibleAt >= attemptAt;
             if (becameVisible) {
@@ -849,6 +907,9 @@ public class LockMonitorService extends Service {
     }
 
     private void launchLockActivity(Context context, Intent lockIntent) {
+        if (suppressLockScreenForCall(context, "launch_activity")) {
+            return;
+        }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
             try {
                 PendingIntent pendingIntent = PendingIntent.getActivity(
@@ -875,6 +936,23 @@ public class LockMonitorService extends Service {
         } catch (RuntimeException e) {
             DiagnosticLog.record(context, TAG, "direct lock launch failed", e);
         }
+    }
+
+    private boolean suppressLockScreenForCall(Context context, String source) {
+        if (!CallStateGuard.shouldSuppressLockScreen(context)) {
+            return false;
+        }
+        waitingForScreenOffUnlock = false;
+        cancelLockScreenRetries();
+        cancelActiveProximityCheck();
+        cancelLockVisibilityChecks();
+        cancelLockNotification(context);
+        LockActivity.clearPreparedForWake();
+        context.sendBroadcast(new Intent(LockActivity.ACTION_CLOSE_PREPARED_FOR_CALL)
+                .setPackage(context.getPackageName()));
+        DiagnosticLog.record(context, TAG, "lock suppressed during call source=" + source
+                + " audioMode=" + CallStateGuard.audioModeSummary(context));
+        return true;
     }
 
     private boolean canUseFullScreenIntent(Context context) {

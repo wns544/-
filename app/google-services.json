@@ -14,6 +14,14 @@
       },
       "oauth_client": [
         {
+          "client_id": "899868622322-8pj003tsa7sn2ano9q6sici9tf6s7ura.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.wns544.nudgescreen",
+            "certificate_hash": "68077077697d1bc88f93574cc8c8b0f2bffb3e97"
+          }
+        },
+        {
           "client_id": "899868622322-nd7g164sjiv67b6bptkssr0bmib6078h.apps.googleusercontent.com",
           "client_type": 1,
           "android_info": {

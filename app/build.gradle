@@ -18,8 +18,8 @@ android {
         applicationId "com.wns544.nudgescreen"
         minSdk 26
         targetSdk 36
-        versionCode 45
-        versionName "1.0.45"
+        versionCode 46
+        versionName "1.0.46"
     }
 
     signingConfigs {
@@ -45,6 +45,7 @@ tasks.withType(JavaCompile).configureEach {
 }
 
 dependencies {
+    implementation "androidx.viewpager2:viewpager2:1.1.0"
     implementation platform("com.google.firebase:firebase-bom:34.15.0")
     implementation "com.google.firebase:firebase-auth"
     implementation "com.google.firebase:firebase-firestore"

@@ -105,4 +105,7 @@
     <string name="lock_display_permission_title">즉시 표시 권한</string>
     <string name="lock_display_permission_body">화면이 꺼져 있을 때 잠금화면을 미리 준비하려면 다른 앱 위에 표시 권한이 필요합니다. 이 권한으로 플로팅 창을 띄우지는 않습니다.</string>
     <string name="lock_display_permission_action">권한 설정 열기</string>
+    <string name="overlay_onboarding_title">잠금화면 표시 권한</string>
+    <string name="overlay_onboarding_body">화면을 켰을 때 할 일을 바로 보여주려면 ‘다른 앱 위에 표시’ 권한이 필요합니다. 다음 화면에서 ‘잠깐, 할 일’을 허용해 주세요.</string>
+    <string name="overlay_onboarding_action">지금 허용하기</string>
 </resources>

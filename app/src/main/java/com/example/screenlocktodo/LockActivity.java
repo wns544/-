@@ -67,7 +67,9 @@ public class LockActivity extends Activity {
     static final String EXTRA_PRE_ARMED = "com.example.screenlocktodo.PRE_ARMED";
     static final String EXTRA_PRE_ARM_REQUESTED_AT = "com.example.screenlocktodo.PRE_ARM_REQUESTED_AT";
     static final String EXTRA_SCREEN_ON_AT = "com.example.screenlocktodo.SCREEN_ON_AT";
+    static final String EXTRA_MONITOR_LAUNCH = "com.example.screenlocktodo.MONITOR_LAUNCH";
     static final String ACTION_CLOSE_FOR_SCREEN_OFF = "com.example.screenlocktodo.CLOSE_FOR_SCREEN_OFF";
+    static final String ACTION_CLOSE_PREPARED_FOR_CALL = "com.example.screenlocktodo.CLOSE_PREPARED_FOR_CALL";
     static final String ACTION_PRE_ARM_SCREEN_ON = "com.example.screenlocktodo.PRE_ARM_SCREEN_ON";
     private static volatile boolean showing;
     private static volatile boolean visible;
@@ -178,6 +180,8 @@ public class LockActivity extends Activity {
         public void onReceive(Context context, Intent intent) {
             if (ACTION_CLOSE_FOR_SCREEN_OFF.equals(intent.getAction())) {
                 closeForScreenOff();
+            } else if (ACTION_CLOSE_PREPARED_FOR_CALL.equals(intent.getAction())) {
+                closePreparedForCall();
             } else if (ACTION_PRE_ARM_SCREEN_ON.equals(intent.getAction())) {
                 activatePreparedLockScreen(intent);
             }
@@ -196,6 +200,15 @@ public class LockActivity extends Activity {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             setRecentsScreenshotEnabled(false);
         }
+        super.onCreate(savedInstanceState);
+        if (getIntent().getBooleanExtra(EXTRA_MONITOR_LAUNCH, false)
+                && CallStateGuard.shouldSuppressLockScreen(this)) {
+            DiagnosticLog.record(this, "NudgeLockActivity", "monitor launch rejected during call");
+            showing = false;
+            finish();
+            overridePendingTransition(0, 0);
+            return;
+        }
         showing = true;
         contentReady = false;
         preArmReady = false;
@@ -203,7 +216,6 @@ public class LockActivity extends Activity {
         idleDismissProtectionActive = !launchedAsPreArm && shouldStartIdleDismissForIntent(getIntent());
         idleDismissCanceledByUser = false;
         configureLockWindow();
-        super.onCreate(savedInstanceState);
         todosLocked = AppSettings.todosLocked(this);
         DiagnosticLog.recordAppState(this, "lock activity onCreate turnScreenOn=" + getIntent().getBooleanExtra(EXTRA_TURN_SCREEN_ON, true)
                 + " idleScreenOff=" + shouldEnforceIdleScreenOff());
@@ -1028,6 +1040,7 @@ public class LockActivity extends Activity {
             return;
         }
         IntentFilter filter = new IntentFilter(ACTION_CLOSE_FOR_SCREEN_OFF);
+        filter.addAction(ACTION_CLOSE_PREPARED_FOR_CALL);
         filter.addAction(ACTION_PRE_ARM_SCREEN_ON);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             registerReceiver(closeForScreenOffReceiver, filter, Context.RECEIVER_NOT_EXPORTED);
@@ -2284,6 +2297,15 @@ public class LockActivity extends Activity {
             finish();
         }
         overridePendingTransition(0, 0);
+    }
+
+    private void closePreparedForCall() {
+        if (!launchedAsPreArm) {
+            DiagnosticLog.record(this, "NudgeLockActivity", "call suppression kept already-visible lock screen");
+            return;
+        }
+        DiagnosticLog.record(this, "NudgeLockActivity", "call suppression closed prepared lock screen");
+        closeForScreenOff();
     }
 
     private void activatePreparedLockScreen(Intent intent) {

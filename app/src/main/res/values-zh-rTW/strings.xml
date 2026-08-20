@@ -105,4 +105,7 @@
     <string name="lock_display_permission_title">立即顯示權限</string>
     <string name="lock_display_permission_body">若要在螢幕關閉時預先準備鎖定畫面，需要允許顯示在其他應用程式上層。此權限不會用來顯示浮動視窗。</string>
     <string name="lock_display_permission_action">開啟權限設定</string>
+    <string name="overlay_onboarding_title">鎖定畫面顯示權限</string>
+    <string name="overlay_onboarding_body">若要在螢幕亮起時立即顯示待辦事項，需要允許 Nudge Screen 顯示在其他應用程式上層。請在下一個畫面允許。</string>
+    <string name="overlay_onboarding_action">立即允許</string>
 </resources>

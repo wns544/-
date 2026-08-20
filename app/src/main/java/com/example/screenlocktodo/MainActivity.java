@@ -38,6 +38,7 @@ import android.view.Gravity;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewConfiguration;
+import android.view.ViewGroup;
 import android.view.Window;
 import android.view.inputmethod.InputMethodManager;
 import android.widget.Button;
@@ -61,6 +62,8 @@ import androidx.credentials.CustomCredential;
 import androidx.credentials.GetCredentialRequest;
 import androidx.credentials.GetCredentialResponse;
 import androidx.credentials.exceptions.GetCredentialException;
+import androidx.recyclerview.widget.RecyclerView;
+import androidx.viewpager2.widget.ViewPager2;
 
 import com.google.android.libraries.identity.googleid.GetGoogleIdOption;
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential;
@@ -86,6 +89,8 @@ public class MainActivity extends Activity {
     private static final int REQUEST_GOOGLE_SIGN_IN = 42;
     private static final int REQUEST_RECORD_AUDIO = 43;
     private static final long TODO_DOUBLE_TAP_MS = ViewConfiguration.getDoubleTapTimeout();
+    private static final int PAGE_TODOS = 0;
+    private static final int PAGE_SETTINGS = 1;
 
     private static final int COLOR_BG = 0xFFF5F6F8;
     private static final int COLOR_INK = 0xFF191F28;
@@ -98,6 +103,10 @@ public class MainActivity extends Activity {
     private static final int COLOR_FIELD = 0xFFF5F6F8;
 
     private ScrollView mainScroll;
+    private ViewPager2 mainPager;
+    private TextView todosPageTab;
+    private TextView settingsPageTab;
+    private int currentMainPage = PAGE_TODOS;
     private LinearLayout todoList;
     private EditText input;
     private Button undoDeleteButton;
@@ -121,6 +130,7 @@ public class MainActivity extends Activity {
     private float drawerDownY;
     private boolean drawerSwiping;
     private boolean drawerOpening;
+    private boolean drawerGestureStartedOnSettings;
     private long lastTodoTapId = -1L;
     private long lastTodoTapAt;
     private View draggingMainTodoRow;
@@ -196,7 +206,9 @@ public class MainActivity extends Activity {
         setContentView(buildContent());
         refreshTodos();
         FirebaseTodoSync.start(this, cloudSyncListener);
-        maybeShowBatteryGuideOnboarding();
+        if (!maybeShowOverlayPermissionOnboarding()) {
+            maybeShowBatteryGuideOnboarding();
+        }
     }
 
     @Override
@@ -255,6 +267,10 @@ public class MainActivity extends Activity {
             closeDrawer();
             return;
         }
+        if (currentMainPage == PAGE_SETTINGS) {
+            showMainPage(PAGE_TODOS, true);
+            return;
+        }
         closeMainTask();
     }
 
@@ -296,26 +312,34 @@ public class MainActivity extends Activity {
 
     private View buildContent() {
         drawerOpen = false;
-        FrameLayout shell = new FrameLayout(this);
+        DrawerRootLayout shell = new DrawerRootLayout(this);
+        shell.setBackgroundColor(COLOR_BG);
 
-        mainScroll = new ScrollView(this);
-        mainScroll.setFillViewport(true);
-        mainScroll.setClipToPadding(false);
-        mainScroll.setBackgroundColor(COLOR_BG);
-
-        LinearLayout root = new LinearLayout(this);
-        root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(dp(20), dp(38), dp(20), dp(28));
-        mainScroll.addView(root, new ScrollView.LayoutParams(
-                ScrollView.LayoutParams.MATCH_PARENT,
-                ScrollView.LayoutParams.WRAP_CONTENT
+        LinearLayout mainColumn = new LinearLayout(this);
+        mainColumn.setOrientation(LinearLayout.VERTICAL);
+        mainColumn.setBackgroundColor(COLOR_BG);
+        mainColumn.addView(hero(), new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
         ));
 
-        root.addView(hero());
-        root.addView(lockSettingsCard(), cardParams());
-        root.addView(todoCard(), cardParams());
+        mainPager = new ViewPager2(this);
+        mainPager.setAdapter(new MainPageAdapter());
+        mainPager.setOffscreenPageLimit(1);
+        mainPager.registerOnPageChangeCallback(new ViewPager2.OnPageChangeCallback() {
+            @Override
+            public void onPageSelected(int position) {
+                currentMainPage = position;
+                updateMainPageTabs();
+            }
+        });
+        mainColumn.addView(mainPager, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                0,
+                1
+        ));
 
-        shell.addView(mainScroll, new FrameLayout.LayoutParams(
+        shell.addView(mainColumn, new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT,
                 FrameLayout.LayoutParams.MATCH_PARENT
         ));
@@ -323,13 +347,15 @@ public class MainActivity extends Activity {
                 FrameLayout.LayoutParams.MATCH_PARENT,
                 FrameLayout.LayoutParams.MATCH_PARENT
         ));
+        mainPager.setCurrentItem(currentMainPage, false);
+        updateMainPageTabs();
         return shell;
     }
 
     private View hero() {
         LinearLayout hero = new LinearLayout(this);
         hero.setOrientation(LinearLayout.VERTICAL);
-        hero.setPadding(dp(8), dp(8), dp(8), dp(8));
+        hero.setPadding(dp(28), dp(38), dp(28), dp(8));
 
         LinearLayout titleRow = new LinearLayout(this);
         titleRow.setOrientation(LinearLayout.HORIZONTAL);
@@ -349,11 +375,118 @@ public class MainActivity extends Activity {
         previewParams.rightMargin = dp(6);
         titleRow.addView(preview, previewParams);
 
-        CircleIconButtonView menu = new CircleIconButtonView(this, CircleIconButtonView.ICON_SETTINGS);
+        CircleIconButtonView menu = new CircleIconButtonView(this, CircleIconButtonView.ICON_MENU);
         menu.setOnClickListener(v -> openDrawer());
         titleRow.addView(menu, new LinearLayout.LayoutParams(dp(36), dp(36)));
 
+        LinearLayout tabs = new LinearLayout(this);
+        tabs.setOrientation(LinearLayout.HORIZONTAL);
+        tabs.setPadding(dp(3), dp(3), dp(3), dp(3));
+        tabs.setBackground(rounded(COLOR_PANEL, 18));
+        LinearLayout.LayoutParams tabsParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                dp(46)
+        );
+        tabsParams.topMargin = dp(18);
+        hero.addView(tabs, tabsParams);
+
+        todosPageTab = mainPageTab(getString(R.string.section_todos), PAGE_TODOS);
+        settingsPageTab = mainPageTab(getString(R.string.settings), PAGE_SETTINGS);
+        LinearLayout.LayoutParams todoTabParams = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1);
+        todoTabParams.rightMargin = dp(2);
+        tabs.addView(todosPageTab, todoTabParams);
+        LinearLayout.LayoutParams settingsTabParams = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1);
+        settingsTabParams.leftMargin = dp(2);
+        tabs.addView(settingsPageTab, settingsTabParams);
+        updateMainPageTabs();
+
         return hero;
+    }
+
+    private TextView mainPageTab(String label, int page) {
+        TextView tab = text(label, 14, COLOR_MUTED, true);
+        tab.setGravity(Gravity.CENTER);
+        tab.setOnClickListener(v -> showMainPage(page, true));
+        return tab;
+    }
+
+    private void showMainPage(int page, boolean smoothScroll) {
+        currentMainPage = page;
+        updateMainPageTabs();
+        if (mainPager != null) {
+            mainPager.setCurrentItem(page, smoothScroll);
+        }
+    }
+
+    private void updateMainPageTabs() {
+        updateMainPageTab(todosPageTab, currentMainPage == PAGE_TODOS);
+        updateMainPageTab(settingsPageTab, currentMainPage == PAGE_SETTINGS);
+    }
+
+    private void updateMainPageTab(TextView tab, boolean selected) {
+        if (tab == null) {
+            return;
+        }
+        tab.setTextColor(selected ? COLOR_ACCENT : COLOR_MUTED);
+        tab.setBackground(selected ? rounded(0xFFE9F2EC, 15) : new ColorDrawable(0x00000000));
+    }
+
+    private View mainPage(int position) {
+        ScrollView scroll = new ScrollView(this);
+        scroll.setFillViewport(true);
+        scroll.setClipToPadding(false);
+        scroll.setBackgroundColor(COLOR_BG);
+
+        LinearLayout content = new LinearLayout(this);
+        content.setOrientation(LinearLayout.VERTICAL);
+        content.setPadding(dp(20), dp(4), dp(20), dp(28));
+        scroll.addView(content, new ScrollView.LayoutParams(
+                ScrollView.LayoutParams.MATCH_PARENT,
+                ScrollView.LayoutParams.WRAP_CONTENT
+        ));
+        if (position == PAGE_TODOS) {
+            mainScroll = scroll;
+            content.addView(todoCard(), cardParams());
+        } else {
+            content.addView(lockSettingsCard(), cardParams());
+        }
+        return scroll;
+    }
+
+    private final class MainPageAdapter extends RecyclerView.Adapter<MainPageViewHolder> {
+        @Override
+        public MainPageViewHolder onCreateViewHolder(ViewGroup parent, int viewType) {
+            FrameLayout container = new FrameLayout(MainActivity.this);
+            container.setLayoutParams(new ViewGroup.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.MATCH_PARENT
+            ));
+            return new MainPageViewHolder(container);
+        }
+
+        @Override
+        public void onBindViewHolder(MainPageViewHolder holder, int position) {
+            FrameLayout container = (FrameLayout) holder.itemView;
+            container.removeAllViews();
+            container.addView(mainPage(position), new FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.MATCH_PARENT,
+                    FrameLayout.LayoutParams.MATCH_PARENT
+            ));
+            if (position == PAGE_TODOS) {
+                container.post(MainActivity.this::refreshTodos);
+            }
+        }
+
+        @Override
+        public int getItemCount() {
+            return 2;
+        }
+    }
+
+    private static final class MainPageViewHolder extends RecyclerView.ViewHolder {
+        MainPageViewHolder(View itemView) {
+            super(itemView);
+        }
     }
 
     private View lockSettingsCard() {
@@ -1070,11 +1203,15 @@ public class MainActivity extends Activity {
                     drawerDownY = event.getRawY();
                     drawerSwiping = false;
                     drawerOpening = false;
+                    drawerGestureStartedOnSettings = currentMainPage == PAGE_SETTINGS;
                     break;
                 case MotionEvent.ACTION_MOVE:
                     float dx = event.getRawX() - drawerDownX;
                     float dy = event.getRawY() - drawerDownY;
-                    if (!drawerSwiping && dx < -dp(18) && Math.abs(dx) > Math.abs(dy) * 1.25f) {
+                    if (drawerGestureStartedOnSettings
+                            && !drawerSwiping
+                            && dx < -dp(18)
+                            && Math.abs(dx) > Math.abs(dy) * 1.25f) {
                         beginDrawerOpenDrag();
                         drawerSwiping = true;
                         drawerOpening = true;
@@ -1118,6 +1255,7 @@ public class MainActivity extends Activity {
                 case MotionEvent.ACTION_CANCEL:
                     drawerSwiping = false;
                     drawerOpening = false;
+                    drawerGestureStartedOnSettings = false;
                     break;
                 default:
                     break;
@@ -2075,6 +2213,31 @@ public class MainActivity extends Activity {
         }
     }
 
+    private boolean maybeShowOverlayPermissionOnboarding() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M
+                || Settings.canDrawOverlays(this)
+                || AppSettings.overlayGuideShown(this)) {
+            return false;
+        }
+        getWindow().getDecorView().post(() -> new AlertDialog.Builder(this)
+                .setTitle(R.string.overlay_onboarding_title)
+                .setMessage(R.string.overlay_onboarding_body)
+                .setPositiveButton(R.string.overlay_onboarding_action, (dialog, which) -> {
+                    AppSettings.setOverlayGuideShown(this, true);
+                    openFastPrearmPermissionSettings();
+                })
+                .setNegativeButton(R.string.later, (dialog, which) -> {
+                    AppSettings.setOverlayGuideShown(this, true);
+                    maybeShowBatteryGuideOnboarding();
+                })
+                .setOnCancelListener(dialog -> {
+                    AppSettings.setOverlayGuideShown(this, true);
+                    maybeShowBatteryGuideOnboarding();
+                })
+                .show());
+        return true;
+    }
+
     private void maybeShowBatteryGuideOnboarding() {
         if (AppSettings.batteryGuideShown(this)) {
             return;
@@ -2863,7 +3026,7 @@ public class MainActivity extends Activity {
 
     private final class CircleIconButtonView extends View {
         static final int ICON_PREVIEW = 1;
-        static final int ICON_SETTINGS = 2;
+        static final int ICON_MENU = 2;
         static final int ICON_BACK = 3;
         static final int ICON_CLOSE = 4;
 
@@ -2906,9 +3069,7 @@ public class MainActivity extends Activity {
                 path.cubicTo(w * 0.66f, h * 0.66f, w * 0.34f, h * 0.66f, w * 0.24f, cy);
                 canvas.drawPath(path, iconPaint);
                 canvas.drawCircle(cx, cy, Math.min(w, h) * 0.105f, iconPaint);
-            } else if (icon == ICON_SETTINGS) {
-                float size = Math.min(w, h);
-                iconFillPaint.setColor(0xFF6B7684);
+            } else if (icon == ICON_MENU) {
                 iconPaint.setStrokeWidth(dp(1.9f));
                 float left = w * 0.29f;
                 float right = w * 0.71f;
@@ -2918,9 +3079,6 @@ public class MainActivity extends Activity {
                 canvas.drawLine(left, topY, right, topY, iconPaint);
                 canvas.drawLine(left, midY, right, midY, iconPaint);
                 canvas.drawLine(left, bottomY, right, bottomY, iconPaint);
-                canvas.drawCircle(w * 0.43f, topY, size * 0.045f, iconFillPaint);
-                canvas.drawCircle(w * 0.58f, midY, size * 0.045f, iconFillPaint);
-                canvas.drawCircle(w * 0.48f, bottomY, size * 0.045f, iconFillPaint);
             } else if (icon == ICON_BACK) {
                 canvas.drawLine(w * 0.58f, h * 0.30f, w * 0.40f, cy, iconPaint);
                 canvas.drawLine(w * 0.40f, cy, w * 0.58f, h * 0.70f, iconPaint);
